@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiAcceptedResponse, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { channelEventResultSchema, channelEventSchema } from '@hotel/shared';
 import { Public } from '../../common/auth/auth.guard';
@@ -18,11 +18,11 @@ export class ChannelController {
   constructor(private readonly channel: ChannelService) {}
 
   @Post('events')
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiHeader({ name: 'X-Channel-Key', required: true })
-  @ApiOperation({ operationId: 'channelEvent', summary: 'Booking, change or cancel from the sales channel (idempotent per channelRef and version)' })
-  @ApiOkResponse({ type: ChannelEventResultDto })
+  @ApiOperation({ operationId: 'channelEvent', summary: 'Accepts a booking, change or cancel from the sales channel. It is stored, then processed by the worker; a repeat of the same channelRef, version and type is the same event.' })
+  @ApiAcceptedResponse({ type: ChannelEventResultDto })
   async event(@Body() body: ChannelEventDto) {
-    return unwrap(await this.channel.handle(body));
+    return unwrap(await this.channel.accept(body));
   }
 }

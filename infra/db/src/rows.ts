@@ -61,7 +61,7 @@ export const buildBooking = (
   const nights = nightsOf(stay.checkIn, stay.checkOut).map((d) => ({ d, p: priceOf(base, type.factor, d) }));
   const first = rng.pick(FIRST);
   const last = rng.pick(LAST);
-  const guests = Math.min(type.maxGuests, stay.kind === 'inhouse' || stay.kind === 'departing' ? rng.pick([1, 1, 2, 2, 2] as const) : rng.pick([1, 2, 2, 3, 4] as const));
+  const guests = Math.min(type.maxGuests, stay.kind === 'inhouse' || stay.kind === 'departing' ? rng.pick([1, 2, 2, 2, 2] as const) : rng.pick([1, 2, 2, 3, 4] as const));
   const assigned = stay.kind === 'past' || stay.kind === 'departing' || stay.kind === 'inhouse';
   const total = nights.reduce((s, n) => s + n.p, 0);
   const lateCancel = stay.status === 'cancelled' && rng.chance(0.25);

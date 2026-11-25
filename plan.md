@@ -10,7 +10,7 @@
 - **Inventory row**: `total` (rooms + allowance), `ooo`, `sold`, `held`, `overbooked`. `CHECK (sold - overbooked + held <= total - ooo)`. A channel booking that does not fit is accepted with `overbooking = true` and counted in `overbooked` on each night.
 - **Lock order**: booking row first, then inventory rows `ORDER BY night`.
 - **Hold token = manage token**: 128-bit random, sha256 stored. The email (log + `email_outbox`) carries the manage link.
-- **Channel import is synchronous in the api** (advisory lock on `channel_ref` + unique constraint), not BullMQ, so the 10x duplicate is atomic and the channel gets an answer. A modify/cancel before its booking goes to `channel_pending_event` and is applied when the booking arrives.
+- **Channel import**: the api stores the event in `channel_inbox` (unique per ref + version + type), queues a BullMQ job and answers 202; the worker applies it under an advisory lock on the booking reference. The reconciler re-queues unprocessed rows after a Redis wipe. A modify/cancel before its booking goes to `channel_pending_event` and is applied when the booking arrives.
 - **Channel push**: changes upsert `channel_dirty` and enqueue a BullMQ job `push-<roomType>` delayed 3 s (jobId dedupes = debounce). Each attempt re-reads current state and takes a new `nextval` version.
 - **Reconciler**: a plain `setInterval` in the worker (survives FLUSHALL). From Postgres it re-enqueues due hold expiries, due audits, dirty room types, unsent emails.
 - **One channel** configured from env; its scope is the `channel_room_type` table.
@@ -19,30 +19,33 @@
 - **Housekeeper vs head**: head housekeeper sees all rooms of her hotel, housekeeper only her own. Socket rooms: one per hotel, join checks the same role as REST.
 - **Seed** is small (3 hotels, 5 types, 150 rooms, 90 days, ~2k bookings): a time cut, logged in README.
 
-## Checklist
+## Checklist (as it really stands)
 
 **P0**
-- [ ] Monorepo, env.ts per app, compose, CI
-- [ ] shared rules + tests
-- [ ] DB schema, constraints, seed
-- [ ] Auth, roles, rate limiters, one error format, Swagger
-- [ ] Guest flow, revenue manager
-- [ ] Tests from the skill, README
+- [x] Monorepo, env.ts per app, compose (postgres, redis, migrate, api×2, nginx, worker, web, channel-stub), CI
+- [x] shared rules + tests
+- [x] DB schema, constraints, full-size seed (300,022 bookings, 1,020,124 folio lines)
+- [x] Auth, roles, rate limiters, one error format, Swagger
+- [x] Guest flow, revenue manager
+- [x] Tests from the skill, README
 
 **P1**
-- [ ] Worker: hold expiry, night audit, reconciler, failed jobs + retry
-- [ ] Front desk, folio, housekeeping
-- [ ] Channel import + push + stub
-- [ ] Web screens, 375 px housekeeping, Playwright guest flow
+- [x] Worker: hold expiry, night audit, reconciler, failed jobs + retry
+- [x] Front desk, folio, housekeeping
+- [x] Channel import + push + stub
+- [x] Web screens, 375 px housekeeping, Playwright flows
 
-**P2**: live grid via sockets, revenue report, chaos mode, moves/extend, overbooking UI, big seed.
+**P2**
+- [x] 60-day grid with live updates (Postgres NOTIFY → Socket.IO), revenue report, stub chaos mode, move/extend/early check-out, overbooking resolution, big seed, performance checks, all four e2e flows
+- Not done / simplified: see README "Not done"
 
 ## Commits
-1. chore: monorepo, env, compose, CI
+1. chore: monorepo, env example, CI, plan
 2. feat(shared): rules
-3. feat(db): schema, constraints, seed
-4. feat(api): auth, roles, rate limiting, errors, swagger
-5. feat(api): guest booking + revenue
-6. feat(worker): holds, audit, reconciler, channel push + stub
-7. feat(api): front desk, folio, housekeeping
-8. feat(web): screens, e2e, docs
+3. feat(db): schema, constraints, transactional core, seed
+4. feat(api): auth, rate limiting, guest flow, revenue, race and login tests
+5. feat(worker): jobs, reconciler, channel push; channel import and stub
+6. feat(api): front desk, folio, housekeeping, admin, realtime, reports; full-size seed
+7. feat(web): guest flow, staff screens, FSD boundaries, generated client
+8. chore: docker image, nginx, compose, CI
+9. test/docs: e2e, kill -9, chaos, README

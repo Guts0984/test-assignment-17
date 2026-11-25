@@ -36,6 +36,16 @@ export const createStub = (env: StubEnv, now: () => Date = () => new Date()): Se
       res.end(PAGE);
     } else if (req.method === 'GET' && path === '/state') {
       json(res, 200, store.snapshot());
+    } else if (req.method === 'GET' && path === '/events') {
+      // server-sent events: one message per accepted push, so the page changes the moment availability does
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.write('retry: 1000\n\ndata: {"hello":true}\n\n');
+      const off = store.subscribe(() => res.write('data: {"changed":true}\n\n'));
+      const beat = setInterval(() => res.write(': keep-alive\n\n'), 15_000);
+      req.on('close', () => {
+        off();
+        clearInterval(beat);
+      });
     } else if (req.method === 'GET' && path === '/health') {
       json(res, 200, { ok: true });
     } else if (req.method === 'POST' && path === '/send') {

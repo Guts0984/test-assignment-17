@@ -1,5 +1,8 @@
 import { addDays, domainError, err, nightsOf, ok, type ChannelEvent, type ChannelEventResult, type DomainError, type Result } from '@hotel/shared';
-import { cancelBooking, changeBooking, inTx, loadBookingById, newBookingCode, newToken, hashToken, occupy, type BookingRow, type Db, type Tx } from '@hotel/db';
+import { cancelBooking, changeBooking, loadBookingById, type BookingRow } from './bookings';
+import { inTx, type Db, type Tx } from './client';
+import { hashToken, newBookingCode, newToken } from './ids';
+import { occupy } from './inventory';
 
 export interface ImportDeps {
   readonly db: Db;

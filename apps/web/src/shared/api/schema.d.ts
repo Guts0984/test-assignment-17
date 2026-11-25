@@ -714,7 +714,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Booking, change or cancel from the sales channel (idempotent per channelRef and version) */
+        /** Accepts a booking, change or cancel from the sales channel. It is stored, then processed by the worker; a repeat of the same channelRef, version and type is the same event. */
         post: operations["channelEvent"];
         delete?: never;
         options?: never;
@@ -1275,7 +1275,7 @@ export interface components {
         };
         ChannelEventResultDto: {
             /** @enum {string} */
-            result: "created" | "updated" | "cancelled" | "stale" | "pending";
+            result: "accepted" | "created" | "updated" | "cancelled" | "stale" | "pending";
             bookingCode: string | null;
             overbooking: boolean;
         };
@@ -2777,7 +2777,7 @@ export interface operations {
             };
         };
         responses: {
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

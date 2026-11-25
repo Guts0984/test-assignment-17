@@ -1,6 +1,6 @@
 import { Queue, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
-import { CHANNEL_PUSH_QUEUE, EMAIL_QUEUE, HOLD_EXPIRY_QUEUE, NIGHT_AUDIT_QUEUE } from '@hotel/shared';
+import { CHANNEL_INBOUND_QUEUE, CHANNEL_PUSH_QUEUE, EMAIL_QUEUE, HOLD_EXPIRY_QUEUE, NIGHT_AUDIT_QUEUE } from '@hotel/shared';
 import type { Db } from '@hotel/db';
 import type { Env } from '../config/env';
 
@@ -11,6 +11,7 @@ export interface Queues {
   readonly nightAudit: Queue;
   readonly channelPush: Queue;
   readonly email: Queue;
+  readonly channelInbound: Queue;
 }
 
 /** Everything a job needs. `now` is the injected clock. */
@@ -33,6 +34,7 @@ export const createQueues = (connection: Redis): Queues => ({
   nightAudit: new Queue(NIGHT_AUDIT_QUEUE, { connection }),
   channelPush: new Queue(CHANNEL_PUSH_QUEUE, { connection }),
   email: new Queue(EMAIL_QUEUE, { connection }),
+  channelInbound: new Queue(CHANNEL_INBOUND_QUEUE, { connection }),
 });
 
 /** Same options the api uses: retries with exponential backoff, failed jobs stay visible. */

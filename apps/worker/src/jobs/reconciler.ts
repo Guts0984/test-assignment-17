@@ -1,4 +1,4 @@
-import { dueHoldIds, hotelsDueForAudit } from '@hotel/db';
+import { dueHoldIds, hotelsDueForAudit, unprocessedInboxIds } from '@hotel/db';
 import { Logger } from '@nestjs/common';
 import { jobOptions, type WorkerDeps } from '../infra/deps';
 import { debounceRemaining } from './channel-push';
@@ -10,7 +10,15 @@ export interface ReconcileReport {
   readonly audits: number;
   readonly pushes: number;
   readonly emails: number;
+  readonly inbound: number;
 }
+
+/** Stored channel events that no worker has applied yet get their job back (the inbox table is the truth). */
+export const reconcileInbound = async (deps: WorkerDeps): Promise<number> => {
+  const ids = await unprocessedInboxIds(deps.db);
+  await Promise.all(ids.map((id) => deps.queues.channelInbound.add('event', { inboxId: id }, jobOptions(deps.env, `inbox-${id}`))));
+  return ids.length;
+};
 
 /**
  * Rebuilds pending work from Postgres, the source of truth, with deterministic jobIds, so running it
@@ -36,7 +44,9 @@ export const reconcileOnce = async (deps: WorkerDeps): Promise<ReconcileReport> 
   const emails = await db.$queryRaw<{ id: string }[]>`SELECT id::text FROM email_outbox WHERE sent_at IS NULL ORDER BY created_at LIMIT 500`;
   await Promise.all(emails.map((e) => queues.email.add('send', { emailId: e.id }, jobOptions(env, `email-${e.id}`))));
 
-  return { holds: holds.length, audits: hotels.length, pushes: dirty.length, emails: emails.length };
+  const inbound = await reconcileInbound(deps);
+
+  return { holds: holds.length, audits: hotels.length, pushes: dirty.length, emails: emails.length, inbound };
 };
 
 /** Plain timer, not a BullMQ repeatable: it must keep running after Redis loses all its data. */

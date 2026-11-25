@@ -18,8 +18,14 @@ export interface RoomTypeView {
 export const createStore = () => {
   const roomTypes = new Map<string, RoomTypeView>();
   const stats = { accepted: 0, ignored: 0, rejected: 0, failedOnPurpose: 0 };
+  const listeners = new Set<() => void>();
   return {
     stats,
+    /** Called after every accepted push; the page's event stream uses it to update live. */
+    subscribe: (fn: () => void): (() => void) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
     /** Returns false when the version is not greater than the stored one. */
     apply: (push: ChannelPush, now: Date): boolean => {
       const cur = roomTypes.get(push.roomTypeId);
@@ -33,6 +39,7 @@ export const createStore = () => {
       for (const n of push.nights) view.nights.set(n.night, { available: n.available, price: n.price, stopSell: n.stopSell });
       roomTypes.set(push.roomTypeId, view);
       stats.accepted += 1;
+      listeners.forEach((l) => l());
       return true;
     },
     snapshot: () => ({

@@ -52,6 +52,16 @@ export const closeNextDate = async (deps: { db: Db; now: () => Date }, hotelId: 
       WHERE b.hotel_id = ${hotelId}::uuid AND b.status = 'checked_in' AND n.night = ${date}::date
       ON CONFLICT (idem_key) DO NOTHING`;
     await tx.$executeRaw`UPDATE hotel SET last_closed_date = ${date}::date WHERE id = ${hotelId}::uuid`;
+    // a repair period starts or ends with the new hotel date: the room goes out of service, or comes back as dirty
+    const next = addDays(date, 1);
+    await tx.$executeRaw`
+      UPDATE room SET status = 'out_of_order'
+      WHERE hotel_id = ${hotelId}::uuid AND status <> 'out_of_order'
+        AND id IN (SELECT room_id FROM room_out_of_order WHERE from_date <= ${next}::date AND to_date > ${next}::date)`;
+    await tx.$executeRaw`
+      UPDATE room SET status = 'dirty'
+      WHERE hotel_id = ${hotelId}::uuid AND status = 'out_of_order'
+        AND id NOT IN (SELECT room_id FROM room_out_of_order WHERE from_date <= ${next}::date AND to_date > ${next}::date)`;
     await tx.$executeRaw`UPDATE night_audit SET no_shows = ${noShows.length}, room_charges = ${charged} WHERE hotel_id = ${hotelId}::uuid AND hotel_date = ${date}::date`;
     return 'closed';
   });

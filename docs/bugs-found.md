@@ -1,2 +1,7 @@
 - packages/db checkOut: with a split room_assignment (moved guest) the early-checkout range update and the "room becomes dirty" subquery touched/returned several rows; now only the last range is shortened and every assigned room of the booking is handled.
 - room_assignment had booking_id as the primary key, so a moved guest could not hold two rooms; migration 0004_staff makes the key (booking_id, room_id).
+- room assignment: two parallel inserts into the exclusion constraint could deadlock (40P01); the room row is locked first, the loser gets ROOM_TAKEN (found by the room assignment race test).
+- createHold returned an error value after its first inserts, which would have committed a held booking without inventory; all operations now run through `inTxResult`, which rolls back on any error value.
+- seed planner put guests into rooms that were out of order; the inventory CHECK rejected it (planner fixed).
+- `@hotel/shared` exported the HMAC helper (node:crypto) from its index, which breaks the browser bundle; server code now imports `@hotel/shared/dist/hmac`.
+- admin channel screen replaced the whole connected list from a one-hotel view; added GET /api/admin/channel and a screen that preloads the current selection.

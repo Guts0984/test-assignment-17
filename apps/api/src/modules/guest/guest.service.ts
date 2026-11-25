@@ -15,7 +15,7 @@ import { addDays, domainError, err, nightsOf, ok, ERROR_STATUS, type DomainError
 import { toHttp } from '../../common/http-error';
 import { guestLinkLimiter } from '../../common/rate-limit/middlewares';
 import type { CounterStore } from '../../common/rate-limit/store';
-import { CLOCK, DB, ENV, LIMITER_STORE, QUEUE, type Clock, type EnvValue } from '../../infra/tokens';
+import { CLOCK, DB, ENV, HOLD_QUEUE, LIMITER_STORE, QUEUE, type Clock, type EnvValue } from '../../infra/tokens';
 import { markChannelDirty } from '../channel/channel-notify';
 import { toBookingView } from './domain/booking-view';
 import { availableRooms } from './domain/search';
@@ -33,6 +33,7 @@ export class GuestService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(LIMITER_STORE) store: CounterStore,
     @Inject(QUEUE) private readonly queue: Queue,
+    @Inject(HOLD_QUEUE) private readonly holdQueue: Queue,
   ) {
     this.limiter = guestLinkLimiter(store, env.GUEST_LINK_LOOKUPS_PER_MIN);
   }
@@ -72,6 +73,10 @@ export class GuestService {
     if (!r.ok) return r;
     await this.dirty(input.roomTypeId);
     const h = r.value;
+    // at the moment the hold is due; the worker's reconciler re-creates this job if Redis loses it
+    await this.holdQueue
+      .add('expire', { bookingId: h.bookingId }, { jobId: `expire-${h.bookingId}`, delay: Math.max(0, h.expiresAt.getTime() - this.clock.now().getTime()), attempts: this.env.JOB_ATTEMPTS, backoff: { type: 'exponential', delay: 500 }, removeOnComplete: true, removeOnFail: false })
+      .catch(() => undefined);
     return ok({
       token: h.token, bookingCode: h.bookingCode, expiresAt: h.expiresAt.toISOString(), serverNow: this.clock.now().toISOString(),
       total: h.total, currency: h.currency, nights: [...h.nights],

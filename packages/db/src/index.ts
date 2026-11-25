@@ -6,6 +6,8 @@ export * from './holds';
 export * from './folio';
 export * from './bookings';
 export * from './audit';
+export * from './channel-import';
+export * from './channel-inbox';
 export * from './rooms';
 export * from './stay';
 export * from './ooo';

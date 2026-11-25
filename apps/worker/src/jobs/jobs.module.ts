@@ -1,8 +1,9 @@
 import { Inject, Injectable, Module, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import type { Worker } from 'bullmq';
-import { CHANNEL_PUSH_QUEUE, EMAIL_QUEUE, HOLD_EXPIRY_QUEUE, NIGHT_AUDIT_QUEUE } from '@hotel/shared';
+import { CHANNEL_INBOUND_QUEUE, CHANNEL_PUSH_QUEUE, EMAIL_QUEUE, HOLD_EXPIRY_QUEUE, NIGHT_AUDIT_QUEUE } from '@hotel/shared';
 import { DEPS, type WorkerDeps } from '../infra/deps';
 import { startProcessor } from '../infra/processor';
+import { runInbound, type InboundData } from './channel-inbound';
 import { handlePush } from './channel-push';
 import { runEmail, type EmailData } from './email';
 import { runHoldExpiry, type HoldExpiryData } from './hold-expiry';
@@ -53,6 +54,16 @@ export class ChannelPushProcessor extends Processor {
 }
 
 @Injectable()
+export class ChannelInboundProcessor extends Processor {
+  constructor(@Inject(DEPS) deps: WorkerDeps) {
+    super(deps);
+  }
+  protected start(): Worker {
+    return startProcessor(CHANNEL_INBOUND_QUEUE, this.deps, async (job) => void (await runInbound(this.deps, job.data as InboundData)));
+  }
+}
+
+@Injectable()
 export class EmailProcessor extends Processor {
   constructor(@Inject(DEPS) deps: WorkerDeps) {
     super(deps);
@@ -80,6 +91,8 @@ export class HoldExpiryModule {}
 export class NightAuditModule {}
 @Module({ providers: [ChannelPushProcessor] })
 export class ChannelPushModule {}
+@Module({ providers: [ChannelInboundProcessor] })
+export class ChannelInboundModule {}
 @Module({ providers: [EmailProcessor] })
 export class EmailModule {}
 @Module({ providers: [Reconciler] })

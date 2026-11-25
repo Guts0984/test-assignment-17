@@ -27,6 +27,8 @@ jobs:
       CHANNEL_API_KEY: ci-channel-key
       CHANNEL_HMAC_SECRET: ci-channel-hmac
       DATABASE_URL: postgresql://hotel:ci-db-password@localhost:5432/hotel
+      SEED_BOOKINGS_PER_HOTEL: '2000'
+      SEED_HISTORY_DAYS: '30'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -38,7 +40,10 @@ jobs:
       - run: pnpm --filter @hotel/db run build
       - run: pnpm typecheck
       - run: pnpm lint
-      - name: Migrate and seed
+      - name: Migrate and seed (small seed in CI)
         run: pnpm --filter @hotel/migrate run build && pnpm --filter @hotel/migrate run migrate && pnpm --filter @hotel/migrate run seed
+      - name: Generated API client is up to date
+        run: pnpm gen:api && git diff --exit-code -- apps/web/openapi.json apps/web/src/shared/api/schema.d.ts
+      - run: pnpm --filter @hotel/worker run build # the kill -9 test starts the real worker process
       - run: pnpm test
       - run: pnpm build

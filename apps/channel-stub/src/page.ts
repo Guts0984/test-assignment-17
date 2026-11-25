@@ -44,5 +44,5 @@ const render = (s) => {
     }).join('');
 };
 const poll = async () => { try { render(await (await fetch('/state')).json()); } catch (e) { /* retry on next tick */ } };
-setInterval(poll, 1000); poll();
+const live = new EventSource('/events'); live.onmessage = poll; poll();
 </script></body></html>`;

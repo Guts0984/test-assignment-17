@@ -292,3 +292,19 @@ model ChannelPushState {
 
   @@map("channel_push_state")
 }
+
+model ChannelInbox {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelRef  String    @map("channel_ref")
+  version     Int
+  type        String
+  roomTypeId  String    @map("room_type_id") @db.Uuid
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+  result      String?
+  error       String?
+
+  @@unique([channelRef, version, type], map: "channel_inbox_event")
+  @@map("channel_inbox")
+}

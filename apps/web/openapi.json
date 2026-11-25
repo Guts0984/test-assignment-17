@@ -2321,7 +2321,7 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "",
             "content": {
               "application/json": {
@@ -2342,7 +2342,7 @@
             }
           }
         },
-        "summary": "Booking, change or cancel from the sales channel (idempotent per channelRef and version)",
+        "summary": "Accepts a booking, change or cancel from the sales channel. It is stored, then processed by the worker; a repeat of the same channelRef, version and type is the same event.",
         "tags": [
           "channel"
         ]
@@ -4701,6 +4701,7 @@
           "result": {
             "type": "string",
             "enum": [
+              "accepted",
               "created",
               "updated",
               "cancelled",

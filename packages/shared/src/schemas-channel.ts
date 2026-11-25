@@ -16,7 +16,7 @@ export const channelEventSchema = z.object({
 export type ChannelEvent = z.infer<typeof channelEventSchema>;
 
 export const channelEventResultSchema = z.object({
-  result: z.enum(['created', 'updated', 'cancelled', 'stale', 'pending']),
+  result: z.enum(['accepted', 'created', 'updated', 'cancelled', 'stale', 'pending']),
   bookingCode: z.string().nullable(),
   overbooking: z.boolean(),
 });

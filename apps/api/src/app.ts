@@ -8,6 +8,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { patchNestJsSwagger } from 'nestjs-zod';
 import { createDb } from '@hotel/db';
+import { CHANNEL_INBOUND_QUEUE, HOLD_EXPIRY_QUEUE } from '@hotel/shared';
 import { AppModule } from './app.module';
 import { bodyErrorHandler } from './common/error.filter';
 import { createGeneralLimiter } from './common/rate-limit/middlewares';
@@ -40,9 +41,12 @@ export const createApp = async (opts: CreateAppOptions): Promise<NestExpressAppl
     warned = true;
   });
   const db = createDb(env.databaseUrl);
-  const pushQueue = new Queue(PUSH_QUEUE, { connection: createQueueRedis(env.REDIS_URL) });
+  const queueRedis = createQueueRedis(env.REDIS_URL);
+  const pushQueue = new Queue(PUSH_QUEUE, { connection: queueRedis });
+  const inboundQueue = new Queue(CHANNEL_INBOUND_QUEUE, { connection: queueRedis });
+  const holdQueue = new Queue(HOLD_EXPIRY_QUEUE, { connection: queueRedis });
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({ env, db, redis, clock, store, pushQueue }), {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({ env, db, redis, clock, store, pushQueue, inboundQueue, holdQueue }), {
     bodyParser: false,
     logger: [env.LOG_LEVEL],
     cors: { origin: [...env.corsOrigins] },
