@@ -1,0 +1,42 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: hotel, POSTGRES_PASSWORD: ci-db-password, POSTGRES_DB: hotel }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hotel" --health-interval 2s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USER: hotel
+      DB_PASSWORD: ci-db-password
+      DB_NAME: hotel
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
+      CHANNEL_API_KEY: ci-channel-key
+      CHANNEL_HMAC_SECRET: ci-channel-hmac
+      DATABASE_URL: postgresql://hotel:ci-db-password@localhost:5432/hotel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @hotel/shared run build
+      - run: pnpm --filter @hotel/migrate run typecheck
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Migrate and seed
+        run: pnpm --filter @hotel/migrate run build && pnpm --filter @hotel/migrate run migrate && pnpm --filter @hotel/migrate run seed
+      - run: pnpm test
+      - run: pnpm build
