@@ -1,4 +1,4 @@
-import { domainError, err, nightsOf, ok, type DomainError, type NightPrice, type Result } from '@hotel/shared';
+import { addDays, domainError, err, nightsOf, ok, type DomainError, type NightPrice, type Result } from '@hotel/shared';
 import { inTx, inTxResult, type Db, type Tx } from './client';
 import { convertHeldToSold, occupy, release } from './inventory';
 import { hashToken, newBookingCode, newToken } from './ids';
@@ -24,6 +24,7 @@ interface HotelRoomType {
   currency: string;
   max_guests: number;
   hotel_id: string;
+  last_closed_date: string;
 }
 
 export const createHold = async (
@@ -32,10 +33,11 @@ export const createHold = async (
 ): Promise<Result<HoldCreated, DomainError>> =>
   inTxResult(deps.db, async (tx) => {
     const [rt] = await tx.$queryRaw<HotelRoomType[]>`
-      SELECT h.currency, rt.max_guests, h.id::text AS hotel_id FROM room_type rt JOIN hotel h ON h.id = rt.hotel_id
+      SELECT h.currency, rt.max_guests, h.id::text AS hotel_id, h.last_closed_date::text FROM room_type rt JOIN hotel h ON h.id = rt.hotel_id
       WHERE rt.id = ${input.roomTypeId}::uuid AND h.id = ${input.hotelId}::uuid`;
     if (!rt) return err(domainError('NOT_FOUND', 'Room type not found in this hotel'));
     if (input.guests > rt.max_guests) return err(domainError('VALIDATION_ERROR', `At most ${rt.max_guests} guests fit this room type`));
+    if (input.checkIn < addDays(rt.last_closed_date, 1)) return err(domainError('VALIDATION_ERROR', 'Check-in date is in the past'));
     const quote = await quoteAndCheck(tx, input);
     if (!quote.ok) return quote;
     const nights = nightsOf(input.checkIn, input.checkOut);

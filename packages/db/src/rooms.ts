@@ -67,9 +67,10 @@ export const assignRoom = (deps: Deps, input: { bookingId: string; roomId: strin
         await tx.$executeRaw`UPDATE booking SET room_type_id = ${room.room_type_id}::uuid, overbooking = false WHERE id = ${b.id}::uuid`;
         await tx.$executeRaw`UPDATE booking_night SET overbooked = false WHERE booking_id = ${b.id}::uuid`;
       }
-      await tx.$executeRaw`
-        INSERT INTO room_assignment (booking_id, room_id, nights) VALUES (${b.id}::uuid, ${room.id}::uuid, daterange(${b.check_in}::date, ${b.check_out}::date))
-        ON CONFLICT (booking_id) DO UPDATE SET room_id = EXCLUDED.room_id, nights = EXCLUDED.nights`;
+      // Serialize on the room row first: two inserts racing into the exclusion constraint can deadlock.
+      await tx.$queryRaw`SELECT id FROM room WHERE id = ${room.id}::uuid FOR UPDATE`;
+      await tx.$executeRaw`DELETE FROM room_assignment WHERE booking_id = ${b.id}::uuid`;
+      await tx.$executeRaw`INSERT INTO room_assignment (booking_id, room_id, nights) VALUES (${b.id}::uuid, ${room.id}::uuid, daterange(${b.check_in}::date, ${b.check_out}::date))`;
       return ok({ upgraded });
     }),
   );

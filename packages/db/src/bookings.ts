@@ -1,5 +1,6 @@
 import {
   DEFAULT_CANCELLATION_POLICY,
+  addDays,
   cancellationPenalty,
   domainError,
   err,
@@ -134,6 +135,7 @@ export const changeBooking = async (
       if (!b || b.status !== 'confirmed') return err(domainError('INVALID_STATUS', 'Only a confirmed booking can be changed'));
       const [rt] = await tx.$queryRaw<{ max_guests: number }[]>`SELECT max_guests FROM room_type WHERE id = ${b.room_type_id}::uuid`;
       if (input.guests > rt.max_guests) return err(domainError('VALIDATION_ERROR', `At most ${rt.max_guests} guests fit this room type`));
+      if (input.checkIn < addDays(b.last_closed_date, 1)) return err(domainError('VALIDATION_ERROR', 'Check-in date is in the past'));
       const old = await loadNights(tx, b.id);
       const oldPrice = new Map(old.map((n) => [n.night, n]));
       const newNights = nightsOf(input.checkIn, input.checkOut);

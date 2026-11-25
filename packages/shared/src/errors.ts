@@ -37,3 +37,23 @@ export interface DomainError {
 }
 
 export const domainError = (code: ErrorCode, message: string, details?: unknown): DomainError => ({ code, message, details });
+
+export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
+  VALIDATION_ERROR: 400,
+  MALFORMED_JSON: 400,
+  PAYLOAD_TOO_LARGE: 413,
+  UNAUTHORIZED: 401,
+  INVALID_CREDENTIALS: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  RATE_LIMITED: 429,
+  CONFLICT: 409,
+  NO_AVAILABILITY: 409,
+  RESTRICTION_VIOLATED: 422,
+  HOLD_EXPIRED: 410,
+  INVALID_STATUS: 409,
+  ROOM_TAKEN: 409,
+  ROOM_NOT_READY: 409,
+  BALANCE_NOT_ZERO: 409,
+  INTERNAL: 500,
+};
