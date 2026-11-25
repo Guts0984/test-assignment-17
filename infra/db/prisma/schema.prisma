@@ -1,0 +1,286 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookingStatus {
+  held
+  confirmed
+  checked_in
+  checked_out
+  cancelled
+  no_show
+  expired
+}
+
+enum BookingSource {
+  web
+  channel
+}
+
+enum RoomStatus {
+  clean
+  dirty
+  inspected
+  out_of_order
+}
+
+enum Role {
+  admin
+  revenue
+  frontdesk
+  housekeeper
+  head_housekeeper
+}
+
+enum FolioKind {
+  charge
+  payment
+  refund
+  storno
+}
+
+model Hotel {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String     @unique
+  name            String
+  timezone        String
+  currency        String
+  checkInTime     String     @map("check_in_time")
+  checkOutTime    String     @map("check_out_time")
+  auditTime       String     @map("audit_time")
+  cancelFreeDays  Int        @default(2) @map("cancel_free_days")
+  cancelFreeUntil String     @default("14:00") @map("cancel_free_until")
+  lastClosedDate  DateTime   @map("last_closed_date") @db.Date
+  roomTypes       RoomType[]
+  rooms           Room[]
+
+  @@map("hotel")
+}
+
+model RoomType {
+  id                   String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hotelId              String @map("hotel_id") @db.Uuid
+  code                 String
+  name                 String
+  rank                 Int
+  maxGuests            Int    @map("max_guests")
+  overbookingAllowance Int    @default(0) @map("overbooking_allowance")
+  hotel                Hotel  @relation(fields: [hotelId], references: [id])
+  rooms                Room[]
+
+  @@unique([hotelId, code])
+  @@map("room_type")
+}
+
+model Room {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hotelId       String     @map("hotel_id") @db.Uuid
+  roomTypeId    String     @map("room_type_id") @db.Uuid
+  number        String
+  status        RoomStatus @default(clean)
+  housekeeperId String?    @map("housekeeper_id") @db.Uuid
+  hotel         Hotel      @relation(fields: [hotelId], references: [id])
+  roomType      RoomType   @relation(fields: [roomTypeId], references: [id])
+
+  @@unique([hotelId, number])
+  @@index([hotelId, housekeeperId])
+  @@map("room")
+}
+
+model RoomOutOfOrder {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomId    String   @map("room_id") @db.Uuid
+  fromDate  DateTime @map("from_date") @db.Date
+  toDate    DateTime @map("to_date") @db.Date
+  reason    String
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("room_out_of_order")
+}
+
+model Inventory {
+  roomTypeId String   @map("room_type_id") @db.Uuid
+  night      DateTime @db.Date
+  total      Int
+  ooo        Int      @default(0)
+  sold       Int      @default(0)
+  held       Int      @default(0)
+  overbooked Int      @default(0)
+
+  @@id([roomTypeId, night])
+  @@map("inventory")
+}
+
+model InventoryJournal {
+  id          BigInt   @id @default(autoincrement())
+  roomTypeId  String   @map("room_type_id") @db.Uuid
+  night       DateTime @db.Date
+  dSold       Int      @default(0) @map("d_sold")
+  dHeld       Int      @default(0) @map("d_held")
+  dOoo        Int      @default(0) @map("d_ooo")
+  dOverbooked Int      @default(0) @map("d_overbooked")
+  reason      String
+  docId       String?  @map("doc_id") @db.Uuid
+  actor       String
+  at          DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([roomTypeId, night])
+  @@index([docId])
+  @@map("inventory_journal")
+}
+
+model Rate {
+  roomTypeId String   @map("room_type_id") @db.Uuid
+  night      DateTime @db.Date
+  price      Int
+
+  @@id([roomTypeId, night])
+  @@map("rate")
+}
+
+model Restriction {
+  roomTypeId        String   @map("room_type_id") @db.Uuid
+  night             DateTime @db.Date
+  minStay           Int?     @map("min_stay")
+  closedToArrival   Boolean  @default(false) @map("closed_to_arrival")
+  closedToDeparture Boolean  @default(false) @map("closed_to_departure")
+  stopSell          Boolean  @default(false) @map("stop_sell")
+
+  @@id([roomTypeId, night])
+  @@map("restriction")
+}
+
+model Booking {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code           String         @unique
+  hotelId        String         @map("hotel_id") @db.Uuid
+  roomTypeId     String         @map("room_type_id") @db.Uuid
+  checkIn        DateTime       @map("check_in") @db.Date
+  checkOut       DateTime       @map("check_out") @db.Date
+  guests         Int
+  status         BookingStatus
+  source         BookingSource
+  channelRef     String?        @unique @map("channel_ref")
+  channelVersion Int?           @map("channel_version")
+  overbooking    Boolean        @default(false)
+  guestName      String?        @map("guest_name")
+  guestEmail     String?        @map("guest_email")
+  guestPhone     String?        @map("guest_phone")
+  totalPrice     Int            @map("total_price")
+  currency       String
+  holdExpiresAt  DateTime?      @map("hold_expires_at") @db.Timestamptz(3)
+  tokenHash      String         @unique @map("token_hash")
+  penalty        Int?
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @default(now()) @map("updated_at") @db.Timestamptz(3)
+  nights         BookingNight[]
+
+  @@index([hotelId, checkIn])
+  @@index([hotelId, checkOut])
+  @@index([hotelId, status])
+  @@index([guestEmail])
+  @@map("booking")
+}
+
+model BookingNight {
+  bookingId String   @map("booking_id") @db.Uuid
+  night      DateTime @db.Date
+  price      Int
+  overbooked Boolean  @default(false)
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+
+  @@id([bookingId, night])
+  @@map("booking_night")
+}
+
+model FolioLine {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId  String    @map("booking_id") @db.Uuid
+  kind       FolioKind
+  category   String
+  amount     Int
+  note       String?
+  stornoOfId String?   @unique @map("storno_of_id") @db.Uuid
+  idemKey    String?   @unique @map("idem_key")
+  hotelDate  DateTime  @map("hotel_date") @db.Date
+  createdBy  String    @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([bookingId])
+  @@map("folio_line")
+}
+
+model NightAudit {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hotelId     String   @map("hotel_id") @db.Uuid
+  hotelDate   DateTime @map("hotel_date") @db.Date
+  closedAt    DateTime @map("closed_at") @db.Timestamptz(3)
+  noShows     Int      @map("no_shows")
+  roomCharges Int      @map("room_charges")
+
+  @@unique([hotelId, hotelDate])
+  @@map("night_audit")
+}
+
+model Staff {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String      @unique
+  passwordHash String      @map("password_hash")
+  name         String
+  roles        StaffRole[]
+
+  @@map("staff")
+}
+
+model StaffRole {
+  id      String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffId String  @map("staff_id") @db.Uuid
+  hotelId String? @map("hotel_id") @db.Uuid
+  role    Role
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, hotelId, role])
+  @@map("staff_role")
+}
+
+model ChannelRoomType {
+  roomTypeId String @id @map("room_type_id") @db.Uuid
+
+  @@map("channel_room_type")
+}
+
+model ChannelPendingEvent {
+  channelRef String   @id @map("channel_ref")
+  version    Int
+  type       String
+  payload    Json
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@map("channel_pending_event")
+}
+
+model ChannelDirty {
+  roomTypeId String   @id @map("room_type_id") @db.Uuid
+  dirtyAt    DateTime @map("dirty_at") @db.Timestamptz(3)
+
+  @@map("channel_dirty")
+}
+
+model EmailOutbox {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  to        String
+  subject   String
+  body      String
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
+
+  @@index([sentAt])
+  @@map("email_outbox")
+}
