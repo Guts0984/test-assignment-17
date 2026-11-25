@@ -43,7 +43,9 @@ describe('route sweep', () => {
       const noToken = await anon.raw(r.method, url, r.method === 'GET' || r.method === 'DELETE' ? undefined : '{}');
       expect([r.method, r.path, noToken.status]).toEqual([r.method, r.path, 401]);
       expect(isErrorShape(noToken.body)).toBe(true);
-      const empty = await withToken(none.token).raw(r.method, url, r.method === 'GET' || r.method === 'DELETE' ? undefined : '{}');
+      // signing out revokes the token, so the logout route gets a throwaway session and the shared one stays valid
+      const emptyToken = r.path === '/api/auth/logout' ? (await makeStaff(app, [])).token : none.token;
+      const empty = await withToken(emptyToken).raw(r.method, url, r.method === 'GET' || r.method === 'DELETE' ? undefined : '{}');
       if (r.path !== '/api/auth/me' && r.path !== '/api/auth/logout') expect([r.method, r.path, empty.status]).toEqual([r.method, r.path, 403]);
       if (/^\/api\/(admin|bookings)/.test(r.path)) {
         const hk = await withToken(housekeeper.token).raw(r.method, url, r.method === 'GET' ? undefined : '{}');

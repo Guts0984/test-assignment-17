@@ -9,9 +9,14 @@ test('a channel booking on a sold night is accepted as overbooking, shown to the
 
   await uiLogin(page, 'chain-admin@hotels.test');
   await page.goto(`/staff/frontdesk?hotel=${w.hotelId}&view=overbooked`);
-  await expect(page.getByText('overbooked').first()).toBeVisible();
+  // the channel event is applied by the worker after the api answered 202: reload until the booking is listed
+  const channelBooking = page.getByRole('link').filter({ hasText: /^BK/ }).first();
+  await expect(async () => {
+    await page.reload();
+    await expect(channelBooking).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 60_000 });
   await expect(page.getByText(web.code)).toHaveCount(0);
-  await page.getByRole('link').filter({ hasText: /^OTA|^CH|^SD|^BK/ }).first().click();
+  await channelBooking.click();
 
   await expect(page.getByTestId('overbooking-notice')).toBeVisible();
   await page.getByTestId(`room-${w.upper.rooms[0].number}`).click();
