@@ -1,6 +1,4 @@
-import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
 import type { Page } from '@playwright/test';
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:8088';
@@ -46,7 +44,7 @@ export const createWorld = async (opts: { auditTime: string; standardRooms: numb
   const adminToken = await login('chain-admin@hotels.test');
   const code = `E${randomUUID().slice(0, 7).toUpperCase()}`;
   const hotel = await api<{ id: string; name: string }>('POST', '/api/admin/hotels', adminToken, {
-    code, name: `E2E ${opts.label} ${code}`, timezone: 'Europe/Lisbon', currency: 'EUR', checkInTime: '14:00', checkOutTime: '12:00', auditTime: opts.auditTime, cancelFreeDays: 2, cancelFreeUntil: '14:00',
+    code, name: `E2E ${opts.label} ${code}`, timezone: 'Europe/Lisbon', currency: 'EUR', checkInTime: '14:00', checkOutTime: '12:00', auditTime: opts.auditTime, cancelFreeDays: 2, cancelFreeUntil: '14:00', listed: false, // test hotels stay out of the public list
   });
   if (hotel.status >= 300) throw new Error(`hotel: ${JSON.stringify(hotel.body)}`);
   const hotelId = hotel.body.id;
@@ -99,7 +97,15 @@ export const stubState = async (): Promise<{ roomTypes: { roomTypeId: string; ve
 
 export const stubSend = (body: unknown): Promise<Reply<unknown>> => http('POST', `${STUB}/send`, { body });
 
-export const workerLog = (sinceMinutes: number): string => execSync(`docker compose logs worker --since ${sinceMinutes}m 2>&1`, { cwd: resolve(process.cwd(), '../..'), encoding: 'utf8' });
+const MAILPIT = process.env.E2E_MAILPIT_URL ?? 'http://localhost:58025';
+
+/** The text of the first mail Mailpit holds for this address, once it has arrived. */
+export const mailTextFor = async (address: string): Promise<string | null> => {
+  const found = await http<{ messages: { ID: string }[] }>('GET', `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${address}`)}`);
+  const id = found.body.messages[0]?.ID;
+  if (!id) return null;
+  return (await http<{ Text: string }>('GET', `${MAILPIT}/api/v1/message/${id}`)).body.Text;
+};
 
 /** HH:MM in the e2e hotels' time zone (Europe/Lisbon) about `minutes` from now, for a hotel whose audit should run soon. */
 export const auditSoon = (minutes: number): string =>

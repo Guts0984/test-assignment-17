@@ -6,7 +6,23 @@ export type Tx = Prisma.TransactionClient;
 
 export const createDb = (url: string): Db => new PrismaClient({ datasources: { db: { url } } });
 
-export const inTx = <T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> => db.$transaction(fn, { maxWait: 30_000, timeout: 30_000 });
+const RETRYABLE = new Set(['40P01', '40001']);
+
+/**
+ * One transaction. A deadlock or serialization failure rolls the whole transaction back, so running it again is
+ * safe: it is retried a few times before the error reaches the caller. (Lock order is also kept consistent
+ * everywhere, so this is a safety net, not the plan.)
+ */
+export const inTx = async <T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> => {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await db.$transaction(fn, { maxWait: 30_000, timeout: 30_000 });
+    } catch (e) {
+      if (attempt >= 4 || !RETRYABLE.has(pgCode(e) ?? '')) throw e;
+      await new Promise((r) => setTimeout(r, 20 * attempt + Math.floor(Math.random() * 30)));
+    }
+  }
+};
 
 /** Metadata written to every journal row. */
 export interface Meta {

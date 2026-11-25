@@ -1,6 +1,6 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './schema';
-import { readToken } from '../lib';
+import { clearSession, readToken } from '../lib';
 
 const auth: Middleware = {
   onRequest: ({ request }) => {
@@ -10,9 +10,18 @@ const auth: Middleware = {
   },
 };
 
+/** A token the server rejects (signed out elsewhere, account removed) ends the session: the screens send the user to the login. */
+const expired: Middleware = {
+  onResponse: ({ response, request }) => {
+    if (response.status === 401 && request.headers.has('Authorization')) clearSession();
+    return response;
+  },
+};
+
 /** Typed client generated from the API's OpenAPI document. Same origin: nginx routes /api to the api copies. */
 export const api = createClient<paths>({ baseUrl: '' });
 api.use(auth);
+api.use(expired);
 
 interface FetchResult<T> {
   readonly data?: T;

@@ -1,11 +1,12 @@
 import type { AddressInfo } from 'node:net';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { confirmHold, createHold } from '@hotel/db';
 import { addDays, hotelDateAt } from '@hotel/shared';
 import { createStub } from '../../channel-stub/src/server';
-import { createFixture, openDb, startWorkers, testEnv, waitFor } from './helpers';
+import { createFixture, openDb, resetTestRedis, startWorkers, testEnv, waitFor } from './helpers';
 
 const db = openDb(testEnv());
+beforeAll(resetTestRedis);
 afterAll(async () => {
   await db.$disconnect();
 });

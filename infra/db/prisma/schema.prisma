@@ -57,6 +57,8 @@ model Hotel {
   cancelFreeDays  Int        @default(2) @map("cancel_free_days")
   cancelFreeUntil String     @default("14:00") @map("cancel_free_until")
   lastClosedDate  DateTime   @map("last_closed_date") @db.Date
+  /// false for hotels made by tests: they are not in the public list (they stay reachable by id)
+  listed          Boolean    @default(true)
   roomTypes       RoomType[]
   rooms           Room[]
 
@@ -177,6 +179,7 @@ model Booking {
   currency       String
   holdExpiresAt  DateTime?      @map("hold_expires_at") @db.Timestamptz(3)
   tokenHash      String         @unique @map("token_hash")
+  cancelDeadline DateTime?      @map("cancel_deadline") @db.Timestamptz(3)
   penalty        Int?
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime       @default(now()) @map("updated_at") @db.Timestamptz(3)
@@ -307,4 +310,12 @@ model ChannelInbox {
 
   @@unique([channelRef, version, type], map: "channel_inbox_event")
   @@map("channel_inbox")
+}
+
+model RevokedToken {
+  jti       String   @id
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("revoked_token")
 }

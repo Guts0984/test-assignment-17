@@ -11,3 +11,4 @@ export * from './queues';
 export * from './schemas-channel';
 export * from './schemas-staff';
 export * from './schemas-reports';
+export * from './zod-messages';

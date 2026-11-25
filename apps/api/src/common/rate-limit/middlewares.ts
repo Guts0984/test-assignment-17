@@ -12,7 +12,8 @@ const reply = (res: Response, e: DomainError, retryAfterSec: number): void => {
 export const createGeneralLimiter =
   (store: CounterStore, perMin: number) =>
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    if (req.path === '/api/health') return next();
+    // channel traffic is limited per channel key (CHANNEL_RATE_PER_MIN), not per address: it comes from one place and in bursts
+    if (req.path === '/api/health' || req.path.startsWith('/api/channel/')) return next();
     try {
       const count = await store.incr(`rl:general:${clientIp(req)}`, 60);
       if (count > perMin) {

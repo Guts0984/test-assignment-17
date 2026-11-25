@@ -68,6 +68,36 @@
         ]
       }
     },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Signs out: this access token stops working at once",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/auth/me": {
       "get": {
         "operationId": "me",
@@ -387,6 +417,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelBookingDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -2999,6 +3039,16 @@
           "guests"
         ]
       },
+      "CancelBookingDto": {
+        "type": "object",
+        "properties": {
+          "expectedPenalty": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": false
+          }
+        }
+      },
       "SetRatesDto": {
         "type": "object",
         "properties": {
@@ -3015,7 +3065,9 @@
           "price": {
             "type": "integer",
             "minimum": 0,
-            "exclusiveMinimum": true
+            "exclusiveMinimum": true,
+            "maximum": 50000000,
+            "exclusiveMaximum": false
           },
           "adjustPercent": {
             "type": "number",
@@ -3983,6 +4035,10 @@
           "cancelFreeUntil": {
             "type": "string",
             "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "listed": {
+            "type": "boolean",
+            "default": true
           }
         },
         "required": [

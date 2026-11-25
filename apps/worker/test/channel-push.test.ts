@@ -1,11 +1,12 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { confirmHold, createHold } from '@hotel/db';
 import { addDays, channelPushSchema } from '@hotel/shared';
 import { verifySignature } from '@hotel/shared/dist/hmac';
 import { jobOptions } from '../src/infra/deps';
-import { createFixture, num, openDb, PAST_TODAY, startPushServer, startWorkers, testEnv, waitFor } from './helpers';
+import { createFixture, num, openDb, PAST_TODAY, resetTestRedis, startPushServer, startWorkers, testEnv, waitFor } from './helpers';
 
 const db = openDb(testEnv());
+beforeAll(resetTestRedis);
 afterAll(async () => {
   await db.$disconnect();
 });

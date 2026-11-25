@@ -9,7 +9,7 @@
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint .",
-    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "test": "pnpm --filter @hotel/migrate run test:db && pnpm -r --workspace-concurrency=1 run test",
     "gen:api": "pnpm --filter @hotel/api run build && pnpm --filter @hotel/api run openapi && pnpm --filter @hotel/web run gen:api",
     "e2e": "pnpm --filter @hotel/web run e2e"
   },
@@ -17,7 +17,7 @@
     "@eslint/js": "^9.17.0",
     "eslint": "^9.17.0",
     "eslint-import-resolver-typescript": "^4.4.5",
-    "eslint-plugin-boundaries": "^7.4.4",
+    "eslint-plugin-boundaries": "^5.4.0",
     "globals": "^15.14.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0"

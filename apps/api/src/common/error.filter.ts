@@ -37,14 +37,46 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 }
 
-/** Express-level handler for failures before Nest routing (malformed JSON, body too large). */
+/** A NUL character cannot be stored in text columns and is never legitimate input. */
+export const NUL_MESSAGE = 'Text must not contain null characters';
+
+/** JSON.parse reviver that refuses strings with a NUL character (body-parser reports it as a parse failure). */
+export const rejectNulReviver = (_key: string, value: unknown): unknown => {
+  if (typeof value === 'string' && value.includes('\u0000')) throw new SyntaxError(NUL_MESSAGE);
+  return value;
+};
+
+/** Refuses a NUL character anywhere in the path or query string. */
+export const rejectNulInUrl = (req: { url?: string }, res: Response, next: (e?: unknown) => void): void => {
+  let decoded = req.url ?? '';
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    // an undecodable address is handled by the router
+  }
+  if (decoded.includes('\u0000')) {
+    res.status(400).json({ code: 'VALIDATION_ERROR', message: NUL_MESSAGE });
+    return;
+  }
+  next();
+};
+
+/**
+ * Express-level handler for everything that goes wrong before Nest routing: unreadable bodies (malformed JSON,
+ * a junk gzip or an unsupported Content-Encoding, a body that is too large). Always the shared error format.
+ */
 export const bodyErrorHandler = (err: unknown, _req: unknown, res: Response, next: (e?: unknown) => void): void => {
-  const type = (err as { type?: string } | null)?.type;
-  if (type === 'entity.parse.failed') {
-    res.status(400).json({ code: 'MALFORMED_JSON', message: 'Request body is not valid JSON' });
-  } else if (type === 'entity.too.large') {
+  if (res.headersSent) return next(err);
+  const e = err as { type?: string; status?: number; statusCode?: number; message?: string } | null;
+  const status = e?.status ?? e?.statusCode;
+  if (e?.type === 'entity.parse.failed') {
+    const nul = typeof e.message === 'string' && e.message.includes(NUL_MESSAGE);
+    res.status(400).json(nul ? { code: 'VALIDATION_ERROR', message: NUL_MESSAGE } : { code: 'MALFORMED_JSON', message: 'Request body is not valid JSON' });
+  } else if (e?.type === 'entity.too.large' || status === 413) {
     res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: 'Request body is too large' });
+  } else if (typeof status === 'number' && status >= 400 && status < 500) {
+    res.status(status).json({ code: 'VALIDATION_ERROR', message: status === 415 ? 'This content encoding is not supported' : 'The request body could not be read' });
   } else {
-    next(err);
+    res.status(500).json({ code: 'INTERNAL', message: 'Something went wrong' });
   }
 };

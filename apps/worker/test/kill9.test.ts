@@ -49,6 +49,9 @@ describe('kill -9 of a worker in the middle of the night audit', () => {
         VALUES (${id}::uuid, ${`K9-${id.slice(0, 8)}`}, ${f.hotelId}::uuid, ${f.roomTypeId}::uuid, ${start}::date, ${addDays(start, 30)}::date, 2, 'checked_in', 'web', 'Long Stay', 'k9@test.local', 300000, 'EUR', ${id})`;
       await db.$executeRaw`INSERT INTO booking_night (booking_id, night, price) SELECT ${id}::uuid, n, 10000 FROM unnest(${nightsOf(start, addDays(start, 30)) as string[]}::date[]) AS n`;
     }
+    // Other test files leave hotels dated in 2020 behind. A real worker would also catch those up (thousands of
+    // dates), which says nothing about this test, so every other hotel in the test database is brought up to date first.
+    await db.$executeRaw`UPDATE hotel SET last_closed_date = ${addDays(realToday, -1)}::date WHERE id <> ${f.hotelId}::uuid AND last_closed_date < ${addDays(realToday, -1)}::date`;
     const expectedDates = 12; // start .. realToday - 1, as the audit of each date is due 03:00 the next day
     const closed = (): Promise<number> => count(db.$queryRaw`SELECT count(*) n FROM night_audit WHERE hotel_id = ${f.hotelId}::uuid`);
 

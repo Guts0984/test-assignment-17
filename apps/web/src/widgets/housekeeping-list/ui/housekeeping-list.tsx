@@ -20,13 +20,18 @@ export const HousekeepingList = ({ hotelId }: { hotelId: string }): ReactNode =>
   const [ooo, setOoo] = useState<{ id: string; from: string; to: string; reason: string } | null>(null);
   const refresh = (): Promise<void> => queryClient.invalidateQueries({ queryKey: ['hk', hotelId] });
   useLiveEvents(hotelId, ['housekeeping:changed'], () => void refresh());
-  const setStatus = (id: string, status: 'clean' | 'inspected' | 'dirty') => action.run(() => api.POST('/api/rooms/{id}/status', { params: { path: { id } }, body: { status } }), refresh);
+  const [errorRoom, setErrorRoom] = useState<string | null>(null);
+  /** The error of an action is shown on the card it belongs to, not at the top of a long list. */
+  const run = (roomId: string): typeof action.run => {
+    setErrorRoom(roomId);
+    return action.run;
+  };
+  const setStatus = (id: string, status: 'clean' | 'inspected' | 'dirty') => run(id)(() => api.POST('/api/rooms/{id}/status', { params: { path: { id } }, body: { status } }), refresh);
   if (rooms.error) return <FormError message={toApiError(rooms.error).message} />;
   if (!rooms.data) return <p>Loading rooms…</p>;
   return (
     <div className="space-y-3" data-testid="hk-list">
       <p className="text-sm text-slate-600">Today: {formatDate(rooms.data.hotelDate)} · {rooms.data.rooms.length} room(s)</p>
-      <FormError message={action.error} />
       {rooms.data.rooms.length === 0 ? <p>No rooms assigned to you.</p> : null}
       {rooms.data.rooms.map((r) => (
         <article key={r.id} data-testid={`room-${r.number}`} className={`space-y-3 rounded-lg border bg-white p-3 shadow-sm ${r.arrivalToday ? 'border-amber-400' : 'border-slate-200'}`}>
@@ -39,6 +44,7 @@ export const HousekeepingList = ({ hotelId }: { hotelId: string }): ReactNode =>
             {r.occupied ? ' · guest in room' : ''}
             {r.arrivalToday ? ' · ARRIVAL TODAY' : ''}
           </p>
+          {errorRoom === r.id ? <FormError message={action.error} /> : null}
           {r.status === 'dirty' ? (
             <button className={`${BIG} bg-slate-900 text-white`} disabled={action.busy} onClick={() => void setStatus(r.id, 'clean')}>
               Mark clean
@@ -61,7 +67,7 @@ export const HousekeepingList = ({ hotelId }: { hotelId: string }): ReactNode =>
                 <select
                   className="mt-1 min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-lg"
                   value={r.housekeeperId ?? ''}
-                  onChange={(e) => void action.run(() => api.PUT('/api/rooms/{id}/housekeeper', { params: { path: { id: r.id } }, body: { housekeeperId: e.target.value || null } }), refresh)}
+                  onChange={(e) => void run(r.id)(() => api.PUT('/api/rooms/{id}/housekeeper', { params: { path: { id: r.id } }, body: { housekeeperId: e.target.value || null } }), refresh)}
                 >
                   <option value="">Nobody</option>
                   {crew.data?.housekeepers.map((h) => (
@@ -83,7 +89,7 @@ export const HousekeepingList = ({ hotelId }: { hotelId: string }): ReactNode =>
               className="space-y-2 rounded-lg bg-slate-50 p-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                void action.run(() => api.POST('/api/rooms/{id}/out-of-order', { params: { path: { id: r.id } }, body: { from: ooo.from, to: ooo.to, reason: ooo.reason } }), async () => {
+                void run(r.id)(() => api.POST('/api/rooms/{id}/out-of-order', { params: { path: { id: r.id } }, body: { from: ooo.from, to: ooo.to, reason: ooo.reason } }), async () => {
                   setOoo(null);
                   await refresh();
                 });

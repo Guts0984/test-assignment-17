@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Redis } from 'ioredis';
 import { createDb, checkConsistency, type Db } from '@hotel/db';
 import { addDays, nightsOf } from '@hotel/shared';
 import { createWorkerApp, type WorkerApp } from '../src/app';
@@ -11,6 +12,13 @@ export const testEnv = (overrides: Record<string, string> = {}): Env =>
   parseEnv({ ...process.env, REDIS_URL: `${process.env.TEST_REDIS_BASE ?? 'redis://127.0.0.1:56379'}/15`, RECONCILE_INTERVAL_MS: '300', CHANNEL_DEBOUNCE_MS: '0', ...overrides });
 
 export const openDb = (env: Env): Db => createDb(env.databaseUrl);
+
+/** Every test file starts from an empty queue database: jobs (retries, delays) left by an earlier run must not leak in. */
+export const resetTestRedis = async (): Promise<void> => {
+  const redis = new Redis(testEnv().REDIS_URL);
+  await redis.flushdb();
+  redis.disconnect();
+};
 
 export const startWorkers = (env: Env, now: () => Date, copies = 1, reconciler = false): Promise<WorkerApp[]> =>
   Promise.all(Array.from({ length: copies }, () => createWorkerApp({ env, now, reconciler, logger: false })));
@@ -30,8 +38,8 @@ export const createFixture = async (
   const roomTypeId = randomUUID();
   const code = `W${hotelId.slice(0, 8)}`;
   await db.$executeRaw`
-    INSERT INTO hotel (id, code, name, timezone, currency, check_in_time, check_out_time, audit_time, last_closed_date)
-    VALUES (${hotelId}::uuid, ${code}, ${code}, ${opts.timezone ?? 'Europe/Lisbon'}, 'EUR', '14:00', '12:00', '03:00', ${addDays(today, -1)}::date)`;
+    INSERT INTO hotel (id, code, name, timezone, currency, check_in_time, check_out_time, audit_time, last_closed_date, listed)
+    VALUES (${hotelId}::uuid, ${code}, ${code}, ${opts.timezone ?? 'Europe/Lisbon'}, 'EUR', '14:00', '12:00', '03:00', ${addDays(today, -1)}::date, false)`;
   await db.$executeRaw`INSERT INTO room_type (id, hotel_id, code, name, rank, max_guests) VALUES (${roomTypeId}::uuid, ${hotelId}::uuid, 'STD', 'Standard', 1, 3)`;
   for (let i = 0; i < opts.rooms; i += 1) {
     await db.$executeRaw`INSERT INTO room (id, hotel_id, room_type_id, number, status) VALUES (${randomUUID()}::uuid, ${hotelId}::uuid, ${roomTypeId}::uuid, ${`1${i}`}, 'clean')`;

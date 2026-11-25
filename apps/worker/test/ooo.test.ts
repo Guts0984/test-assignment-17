@@ -1,9 +1,10 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closeNextDate } from '@hotel/db';
 import { addDays } from '@hotel/shared';
-import { createFixture, openDb, PAST_TODAY, testEnv } from './helpers';
+import { createFixture, openDb, PAST_TODAY, resetTestRedis, testEnv } from './helpers';
 
 const db = openDb(testEnv());
+beforeAll(resetTestRedis);
 afterAll(async () => {
   await db.$disconnect();
 });

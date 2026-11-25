@@ -9,8 +9,6 @@ const openBooking = async (page: Page, w: World, code: string): Promise<void> =>
   await expect(page.getByTestId('status')).toBeVisible();
 };
 
-test.describe.configure({ mode: 'serial' });
-
 test('front desk: assign, check in, night audit charges the night, pay, check out; room goes to housekeeping and back to sale; a no-show is penalised', async ({ page, browser }) => {
   const w = await createWorld({ auditTime: auditSoon(1), standardRooms: 2, label: 'audit' });
   const stay = await bookViaApi(w, w.standard.id, w.today, addDays(w.today, 2));

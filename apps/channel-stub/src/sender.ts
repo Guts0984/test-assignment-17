@@ -32,19 +32,34 @@ export const createSender = (env: StubEnv) => {
   const known = new Map<string, Known>();
   let lastRef: string | undefined;
 
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  /**
+   * One attempt. A real channel does not drop a booking because the other side said "slow down" (429) or was
+   * briefly unavailable (5xx, network): it waits for Retry-After and sends the same event again. The api
+   * treats a repeat of the same reference and version as the same event, so retrying is always safe.
+   */
   const post = async (target: string, ev: ChannelEvent): Promise<ApiReply> => {
     const sent = { channelRef: ev.channelRef, version: ev.version, type: ev.type };
-    try {
-      const res = await fetch(`${target}/api/channel/events`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-channel-key': env.apiKey },
-        body: JSON.stringify(ev),
-        signal: AbortSignal.timeout(15_000),
-      });
-      return { target, status: res.status, body: await res.json().catch(() => null), sent };
-    } catch (e) {
-      return { target, status: 0, body: { message: e instanceof Error ? e.message : String(e) }, sent };
+    let last: ApiReply = { target, status: 0, body: null, sent };
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      try {
+        const res = await fetch(`${target}/api/channel/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-channel-key': env.apiKey },
+          body: JSON.stringify(ev),
+          signal: AbortSignal.timeout(15_000),
+        });
+        last = { target, status: res.status, body: await res.json().catch(() => null), sent };
+        if (res.status !== 429 && res.status < 500) return last;
+        const retryAfter = Number(res.headers.get('retry-after'));
+        await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 30) * 1000 : 200 * attempt);
+      } catch (e) {
+        last = { target, status: 0, body: { message: e instanceof Error ? e.message : String(e) }, sent };
+        await sleep(200 * attempt);
+      }
     }
+    return last;
   };
 
   const fanOut = (ev: ChannelEvent, both: boolean, i: number): Promise<ApiReply[]> => {

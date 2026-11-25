@@ -4,7 +4,7 @@ import type { Tx } from './client';
 /** Reads rates and restrictions for the stay and applies the shared rules. */
 export const quoteAndCheck = async (
   tx: Tx,
-  input: { roomTypeId: string; checkIn: string; checkOut: string },
+  input: { roomTypeId: string; checkIn: string; checkOut: string; enforceRestrictions?: boolean },
 ): Promise<Result<{ nights: readonly NightPrice[]; total: number }, DomainError>> => {
   const nights = nightsOf(input.checkIn, input.checkOut);
   const dates = [...nights, input.checkOut];
@@ -16,7 +16,7 @@ export const quoteAndCheck = async (
   const byNight = new Map<string, DayRestriction>(
     rs.map((r) => [r.night, { minStay: r.min_stay, closedToArrival: r.cta, closedToDeparture: r.ctd, stopSell: r.stop }]),
   );
-  const violations = checkRestrictions(input.checkIn, input.checkOut, (d) => byNight.get(d));
+  const violations = input.enforceRestrictions === false ? [] : checkRestrictions(input.checkIn, input.checkOut, (d) => byNight.get(d));
   if (violations.length > 0) {
     return err(domainError('RESTRICTION_VIOLATED', violations.map((v) => v.message).join('; '), violations));
   }

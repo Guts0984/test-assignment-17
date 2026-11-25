@@ -37,6 +37,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Signs out: this access token stops working at once */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/me": {
         parameters: {
             query?: never;
@@ -874,6 +891,9 @@ export interface components {
             checkOut: string;
             guests: number;
         };
+        CancelBookingDto: {
+            expectedPenalty?: number;
+        };
         SetRatesDto: {
             /** Format: uuid */
             roomTypeId: string;
@@ -1107,6 +1127,8 @@ export interface components {
             auditTime: string;
             cancelFreeDays: number;
             cancelFreeUntil: string;
+            /** @default true */
+            listed: boolean;
         };
         HotelDto: {
             id: string;
@@ -1352,6 +1374,32 @@ export interface operations {
             };
         };
     };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;
@@ -1580,7 +1628,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelBookingDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

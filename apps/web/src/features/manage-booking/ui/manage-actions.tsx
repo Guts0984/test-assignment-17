@@ -27,12 +27,19 @@ export const ManageActions = ({ token, booking }: { token: string; booking: Book
     if (!applyFieldErrors(e, form.setError)) form.setError('root', { message: e.message });
   });
   const cancel = async (): Promise<void> => {
-    const r = await api.POST('/api/manage/{token}/cancel', { params: { path: { token } } });
+    // the penalty the guest saw is sent along: if the terms changed since (the free period ended while the
+    // page was open), the server refuses and the guest sees the new terms before confirming again
+    const r = await api.POST('/api/manage/{token}/cancel', { params: { path: { token } }, body: { expectedPenalty: booking.cancellation.penalty } });
     if (r.data) {
       setConfirming(false);
       return refresh();
     }
-    setCancelError(toApiError(r.error).message);
+    const e = toApiError(r.error);
+    setCancelError(e.message);
+    if (e.code === 'CONFLICT') {
+      setConfirming(false);
+      await refresh();
+    }
   };
   if (booking.status !== 'confirmed') return null;
   const c = booking.cancellation;

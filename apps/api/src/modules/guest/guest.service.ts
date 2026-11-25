@@ -36,6 +36,7 @@ export class GuestService {
     @Inject(HOLD_QUEUE) private readonly holdQueue: Queue,
   ) {
     this.limiter = guestLinkLimiter(store, env.GUEST_LINK_LOOKUPS_PER_MIN);
+    this.holdStore = store;
   }
 
   hotels = () => listHotels(this.db);
@@ -68,9 +69,25 @@ export class GuestService {
     return rows;
   }
 
-  async hold(input: { hotelId: string; roomTypeId: string; checkIn: string; checkOut: string; guests: number }) {
+  private readonly holdStore: CounterStore;
+
+  /**
+   * One address cannot keep a whole room type held: at most HOLDS_PER_IP_MAX holds per address in one hold period.
+   * A slot is taken before the hold is tried and given back if the hold fails, so a refused try costs nothing
+   * and parallel requests cannot all slip past the check.
+   */
+  async hold(input: { hotelId: string; roomTypeId: string; checkIn: string; checkOut: string; guests: number }, clientIp: string) {
+    const key = `holds:${clientIp}`;
+    const taken = await this.holdStore.incr(key, this.env.HOLD_MINUTES * 60);
+    if (taken > this.env.HOLDS_PER_IP_MAX) {
+      await this.holdStore.decr(key);
+      return err(domainError('RATE_LIMITED', 'Too many rooms are held from your address right now. Confirm or wait for one of them to expire.', { retryAfterSec: Math.max(1, await this.holdStore.ttl(key)) }));
+    }
     const r = await createHold({ db: this.db, now: this.clock.now, holdMinutes: this.env.HOLD_MINUTES }, input);
-    if (!r.ok) return r;
+    if (!r.ok) {
+      await this.holdStore.decr(key);
+      return r;
+    }
     await this.dirty(input.roomTypeId);
     const h = r.value;
     // at the moment the hold is due; the worker's reconciler re-creates this job if Redis loses it
@@ -120,9 +137,9 @@ export class GuestService {
     return ok(await this.view(token));
   }
 
-  async cancel(req: Pick<Request, 'ip' | 'socket'>, token: string) {
+  async cancel(req: Pick<Request, 'ip' | 'socket'>, token: string, expectedPenalty?: number) {
     const found = await this.lookup(req, token);
-    const r = await cancelBooking({ db: this.db, now: this.clock.now }, { bookingId: found.booking.id, actor: 'guest', hotelDate: addDays(found.booking.last_closed_date, 1) });
+    const r = await cancelBooking({ db: this.db, now: this.clock.now }, { bookingId: found.booking.id, actor: 'guest', hotelDate: addDays(found.booking.last_closed_date, 1), expectedPenalty });
     if (!r.ok) return r;
     await this.dirty(found.booking.room_type_id);
     return ok(await this.view(token));

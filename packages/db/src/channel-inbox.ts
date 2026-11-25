@@ -33,11 +33,12 @@ export const processInboundEvent = async (deps: { db: Db; now: () => Date }, inb
   const [row] = await deps.db.$queryRaw<{ payload: unknown; processed_at: Date | null }[]>`SELECT payload, processed_at FROM channel_inbox WHERE id = ${inboxId}::uuid`;
   if (!row || row.processed_at) return { status: 'skipped' };
   const ev = channelEventSchema.parse(row.payload);
-  const out = await limit(() => importChannelEvent(deps, ev));
-  const result = out.result.ok ? out.result.value.result : 'rejected';
-  const error = out.result.ok ? null : `${out.result.error.code}: ${out.result.error.message}`;
-  await deps.db.$executeRaw`
-    UPDATE channel_inbox SET processed_at = ${deps.now()}, result = ${result}, error = ${error} WHERE id = ${inboxId}::uuid AND processed_at IS NULL`;
+  const out = await limit(() => importChannelEvent(deps, ev, inboxId));
+  if (!out.result.ok) {
+    // a rule violation (no rates, ...) is a final answer, recorded on the row; retrying cannot change it
+    const error = `${out.result.error.code}: ${out.result.error.message}`;
+    await deps.db.$executeRaw`UPDATE channel_inbox SET processed_at = ${deps.now()}, result = 'rejected', error = ${error} WHERE id = ${inboxId}::uuid AND processed_at IS NULL`;
+  }
   return { status: 'processed', roomTypeId: out.roomTypeId, changed: out.result.ok && out.result.value.result !== 'stale' && out.result.value.result !== 'pending' };
 };
 

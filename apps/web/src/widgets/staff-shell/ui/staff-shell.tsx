@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { useStaffHotels } from '@/entities/hotel';
+import { api } from '@/shared/api';
 import { clearSession, useUrlParams } from '@/shared/lib';
 
 const LINKS = [
@@ -35,7 +36,7 @@ export const StaffShell = ({ roles, children }: { roles: readonly string[]; chil
             </Link>
           ))}
         </nav>
-        <select aria-label="Hotel" className="ml-auto rounded border border-slate-300 px-2 py-1" value={hotelId} onChange={(e) => setHotel(e.target.value)}>
+        <select aria-label="Hotel" className="ml-auto min-h-11 rounded border border-slate-300 px-3 text-base" value={hotelId} onChange={(e) => setHotel(e.target.value)}>
           {hotels.map((h) => (
             <option key={h.id} value={h.id}>
               {h.name}
@@ -43,10 +44,13 @@ export const StaffShell = ({ roles, children }: { roles: readonly string[]; chil
           ))}
         </select>
         <button
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
+          className="min-h-11 rounded border border-slate-300 px-3 text-base"
           onClick={() => {
-            clearSession();
-            router.replace('/staff/login');
+            // the server revokes the token; the screen does not wait for the answer
+            void api.POST('/api/auth/logout').finally(() => {
+              clearSession();
+              router.replace('/staff/login');
+            });
           }}
         >
           Sign out ({session.staff.name})

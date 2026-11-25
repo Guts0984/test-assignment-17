@@ -8,17 +8,23 @@ export const money = z.number().int();
 
 const stayFields = { checkIn: isoDate, checkOut: isoDate, guests: z.number().int().min(1).max(10) };
 
-const stayRefine = (v: { checkIn: string; checkOut: string }, ctx: z.RefinementCtx): void => {
+/** Largest nightly price (minor units): 30 nights of it still fit a 32-bit integer total. */
+export const MAX_PRICE = 50_000_000;
+/** Longest date range a rate, restriction or repair change may cover in one call. */
+export const MAX_RANGE_DAYS = 800;
+
+export const stayRefine = (v: { checkIn: string; checkOut: string }, ctx: z.RefinementCtx): void => {
   if (!isIsoDate(v.checkIn) || !isIsoDate(v.checkOut)) return;
   const n = diffDays(v.checkIn, v.checkOut);
   if (n < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['checkOut'], message: 'Check-out must be after check-in' });
   if (n > 30) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['checkOut'], message: 'Stay is limited to 30 nights' });
 };
 
-const rangeRefine = (v: { from: string; to: string }, ctx: z.RefinementCtx): void => {
-  if (isIsoDate(v.from) && isIsoDate(v.to) && diffDays(v.from, v.to) < 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: '"to" must not be before "from"' });
-  }
+export const rangeRefine = (v: { from: string; to: string }, ctx: z.RefinementCtx): void => {
+  if (!isIsoDate(v.from) || !isIsoDate(v.to)) return;
+  const n = diffDays(v.from, v.to);
+  if (n < 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: '"to" must not be before "from"' });
+  if (n > MAX_RANGE_DAYS) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: `A change can cover at most ${MAX_RANGE_DAYS} days` });
 };
 
 // ---------- auth ----------
@@ -66,8 +72,8 @@ export const holdResponseSchema = z.object({
   nights: z.array(nightPriceSchema),
 });
 export const confirmHoldSchema = z.object({
-  guestName: z.string().trim().min(2).max(120),
-  guestEmail: z.string().trim().email().max(200),
+  guestName: z.string().trim().min(2, 'Enter your full name').max(120),
+  guestEmail: z.string().trim().email('Enter a valid e-mail address').max(200),
   guestPhone: z.string().trim().regex(/^\+?[0-9 ()-]{6,20}$/, 'Invalid phone number'),
 });
 export const bookingViewSchema = z.object({
@@ -88,6 +94,8 @@ export const bookingViewSchema = z.object({
 });
 export const confirmResponseSchema = z.object({ code: z.string(), manageUrl: z.string(), booking: bookingViewSchema });
 export const changeBookingSchema = z.object(stayFields).superRefine(stayRefine);
+/** The guest sends the penalty the preview showed; if the terms changed since, the cancel is refused and the guest sees the new terms. */
+export const cancelBookingSchema = z.object({ expectedPenalty: z.number().int().nonnegative().optional() });
 
 // ---------- revenue ----------
 export const setRatesSchema = z
@@ -95,7 +103,7 @@ export const setRatesSchema = z
     roomTypeId: uuid,
     from: isoDate,
     to: isoDate,
-    price: z.number().int().positive().optional(),
+    price: z.number().int().positive().max(MAX_PRICE, `The price is limited to ${MAX_PRICE} minor units`).optional(),
     adjustPercent: z.number().min(-90).max(500).optional(),
     weekdays: z.array(z.number().int().min(0).max(6)).optional(),
   })

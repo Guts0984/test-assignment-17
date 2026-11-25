@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import {
   bookingViewSchema,
+  cancelBookingSchema,
   changeBookingSchema,
   confirmHoldSchema,
   confirmResponseSchema,
@@ -20,3 +21,4 @@ export class ConfirmHoldDto extends createZodDto(confirmHoldSchema) {}
 export class ConfirmResponseDto extends createZodDto(confirmResponseSchema) {}
 export class BookingViewDto extends createZodDto(bookingViewSchema) {}
 export class ChangeBookingDto extends createZodDto(changeBookingSchema) {}
+export class CancelBookingDto extends createZodDto(cancelBookingSchema) {}

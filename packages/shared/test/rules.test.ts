@@ -90,3 +90,18 @@ describe('price', () => {
     expect(quoteStay(['2026-06-01'], () => undefined)).toBeNull();
   });
 });
+
+describe('input hardening', () => {
+  it('only real calendar dates are dates', async () => {
+    const { isIsoDate } = await import('../src');
+    expect(['2027-02-30', '2027-13-01', '2027-04-31', '2026-02-29'].map(isIsoDate)).toEqual([false, false, false, false]);
+    expect(['2028-02-29', '2027-02-28', '2027-12-31'].map(isIsoDate)).toEqual([true, true, true]);
+  });
+
+  it('a pinned cancellation deadline stays even when the stay moves later', () => {
+    const base = { checkIn: '2026-07-20', policy: DEFAULT_CANCELLATION_POLICY, tz: 'Europe/Lisbon', firstNightPrice: 12_000, now: new Date('2026-07-10T12:00:00Z') };
+    expect(cancellationPenalty(base)).toMatchObject({ free: true });
+    const pinned = new Date('2026-07-05T13:00:00Z'); // the free period ended before the guest moved the stay
+    expect(cancellationPenalty({ ...base, pinnedDeadline: pinned })).toMatchObject({ free: false, penalty: 12_000 });
+  });
+});

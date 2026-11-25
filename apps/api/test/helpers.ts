@@ -121,8 +121,8 @@ export const createFixture = async (db: Db, opts: { rooms: number; timezone?: st
   const upperRoomTypeId = randomUUID();
   const code = `T${hotelId.slice(0, 8)}`;
   await db.$executeRaw`
-    INSERT INTO hotel (id, code, name, timezone, currency, check_in_time, check_out_time, audit_time, last_closed_date)
-    VALUES (${hotelId}::uuid, ${code}, ${`Test ${code}`}, ${opts.timezone ?? 'Europe/Lisbon'}, 'EUR', '14:00', '12:00', ${opts.auditTime ?? '03:00'}, ${addDays(today, -1)}::date)`;
+    INSERT INTO hotel (id, code, name, timezone, currency, check_in_time, check_out_time, audit_time, last_closed_date, listed)
+    VALUES (${hotelId}::uuid, ${code}, ${`Test ${code}`}, ${opts.timezone ?? 'Europe/Lisbon'}, 'EUR', '14:00', '12:00', ${opts.auditTime ?? '03:00'}, ${addDays(today, -1)}::date, false)`;
   await db.$executeRaw`INSERT INTO room_type (id, hotel_id, code, name, rank, max_guests) VALUES (${roomTypeId}::uuid, ${hotelId}::uuid, 'STD', 'Standard', 1, 3)`;
   await db.$executeRaw`INSERT INTO room_type (id, hotel_id, code, name, rank, max_guests) VALUES (${upperRoomTypeId}::uuid, ${hotelId}::uuid, 'SUP', 'Superior', 2, 3)`;
   const roomIds = Array.from({ length: opts.rooms }, () => randomUUID());

@@ -10,7 +10,7 @@ import { patchNestJsSwagger } from 'nestjs-zod';
 import { createDb } from '@hotel/db';
 import { CHANNEL_INBOUND_QUEUE, HOLD_EXPIRY_QUEUE } from '@hotel/shared';
 import { AppModule } from './app.module';
-import { bodyErrorHandler } from './common/error.filter';
+import { bodyErrorHandler, rejectNulInUrl, rejectNulReviver } from './common/error.filter';
 import { createGeneralLimiter } from './common/rate-limit/middlewares';
 import { createFallbackStore, createMemoryStore, createRedisStore } from './common/rate-limit/store';
 import type { Env } from './config/env';
@@ -46,7 +46,10 @@ export const createApp = async (opts: CreateAppOptions): Promise<NestExpressAppl
   const inboundQueue = new Queue(CHANNEL_INBOUND_QUEUE, { connection: queueRedis });
   const holdQueue = new Queue(HOLD_EXPIRY_QUEUE, { connection: queueRedis });
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({ env, db, redis, clock, store, pushQueue, inboundQueue, holdQueue }), {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({
+      env, db, redis, clock, store, pushQueue, inboundQueue, holdQueue,
+      closers: [() => pushQueue.close(), () => inboundQueue.close(), () => holdQueue.close(), () => db.$disconnect(), async () => void redis.disconnect(), async () => void queueRedis.disconnect()],
+    }), {
     bodyParser: false,
     logger: [env.LOG_LEVEL],
     cors: { origin: [...env.corsOrigins] },
@@ -56,12 +59,12 @@ export const createApp = async (opts: CreateAppOptions): Promise<NestExpressAppl
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(createGeneralLimiter(store, env.RATE_LIMIT_GLOBAL_PER_MIN));
-  app.use(express.json({ limit: env.BODY_LIMIT }));
+  app.use(rejectNulInUrl);
+  app.use(express.json({ limit: env.BODY_LIMIT, reviver: rejectNulReviver }));
   app.use(bodyErrorHandler);
   if (opts.docs !== false) {
     const document = describeApi(SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('Hotel chain API').setVersion('1.0').addBearerAuth().build()));
     SwaggerModule.setup('docs', app, document);
   }
-  app.enableShutdownHooks();
   return app;
 };

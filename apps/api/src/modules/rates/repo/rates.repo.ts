@@ -1,6 +1,7 @@
+import { HttpException } from '@nestjs/common';
 import type { Db } from '@hotel/db';
-import { inTx } from '@hotel/db';
-import { addDays, applyRateChange, diffDays, domainError, err, nightsOf, ok, type DomainError, type RateChange, type Result } from '@hotel/shared';
+import { inTx, pgCode } from '@hotel/db';
+import { addDays, applyRateChange, diffDays, domainError, ERROR_STATUS, err, MAX_PRICE, nightsOf, ok, type DomainError, type RateChange, type Result } from '@hotel/shared';
 
 export const roomTypeInHotel = async (db: Db, hotelId: string, roomTypeId: string): Promise<boolean> =>
   (await db.roomType.count({ where: { id: roomTypeId, hotelId } })) > 0;
@@ -21,6 +22,7 @@ export const applyRates = async (db: Db, input: { roomTypeId: string; from: stri
       const price = applyRateChange(d, byNight.get(d), input);
       return price === undefined || price === byNight.get(d) ? [] : [{ d, p: price }];
     });
+    if (rows.some((r) => r.p > MAX_PRICE || r.p < 1)) throw new HttpException(domainError('VALIDATION_ERROR', `A price must stay between 1 and ${MAX_PRICE}`, { issues: [{ path: 'adjustPercent', message: 'The result would leave the allowed price range' }] }), ERROR_STATUS.VALIDATION_ERROR);
     if (rows.length === 0) return 0;
     await tx.$executeRaw`
       INSERT INTO rate (room_type_id, night, price)
@@ -57,6 +59,8 @@ export const applyRestrictions = async (db: Db, p: RestrictionPatch): Promise<nu
 export const applyOverbookingAllowance = async (db: Db, hotelId: string, roomTypeId: string, allowance: number, today: string): Promise<Result<true, DomainError>> => {
   try {
     await inTx(db, async (tx) => {
+      // the same ascending order every booking uses, so this cannot deadlock with a booking in progress
+      await tx.$queryRaw`SELECT night FROM inventory WHERE room_type_id = ${roomTypeId}::uuid AND night >= ${today}::date ORDER BY night FOR UPDATE`;
       await tx.$executeRaw`UPDATE room_type SET overbooking_allowance = ${allowance} WHERE id = ${roomTypeId}::uuid AND hotel_id = ${hotelId}::uuid`;
       await tx.$executeRaw`
         UPDATE inventory SET total = (SELECT count(*) FROM room WHERE room_type_id = ${roomTypeId}::uuid)::int + ${allowance}
@@ -64,7 +68,7 @@ export const applyOverbookingAllowance = async (db: Db, hotelId: string, roomTyp
     });
     return ok(true);
   } catch (e) {
-    if (JSON.stringify(e).includes('23514')) return err(domainError('CONFLICT', 'Rooms are already sold beyond the new allowance'));
+    if (pgCode(e) === '23514') return err(domainError('CONFLICT', 'Rooms are already sold beyond the new allowance'));
     throw e;
   }
 };

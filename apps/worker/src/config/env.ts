@@ -16,6 +16,11 @@ const schema = z.object({
   JOB_ATTEMPTS: z.coerce.number().int().positive().default(8),
   RECONCILE_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  WORKER_LOCK_MS: z.coerce.number().int().min(2000).default(10_000),
+  // empty SMTP_HOST: mails are only logged (local runs without a mail server)
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  MAIL_FROM: z.string().min(3).default('bookings@hotel-chain.test'),
 });
 
 export type Env = Readonly<z.infer<typeof schema> & { databaseUrl: string }>;

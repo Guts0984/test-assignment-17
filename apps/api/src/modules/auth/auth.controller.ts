@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { Public } from '../../common/auth/auth.guard';
+import { Public, type AuthedRequest } from '../../common/auth/auth.guard';
 import { CurrentStaff } from '../../common/auth/current-staff';
 import type { StaffIdentity } from '../../common/auth/access';
 import { unwrap } from '../../common/http-error';
@@ -21,6 +21,15 @@ export class AuthController {
   @ApiOkResponse({ type: LoginResponseDto })
   async login(@Body() body: LoginDto, @Req() req: Request): Promise<LoginResponseDto> {
     return unwrap(await this.auth.login({ ip: clientIp(req), email: body.email, password: body.password }));
+  }
+
+  @Post('logout')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOperation({ operationId: 'logout', summary: 'Signs out: this access token stops working at once' })
+  async logout(@Req() req: Request): Promise<{ ok: true }> {
+    await this.auth.logout((req as AuthedRequest).token);
+    return { ok: true };
   }
 
   @Get('me')

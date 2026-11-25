@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { searchQuerySchema } from '@hotel/shared';
@@ -33,10 +33,16 @@ export const SearchRooms = (): ReactNode => {
     enabled: Boolean(searched),
     queryFn: () => call(api.GET('/api/search', { params: { query: current } })),
   });
+  const [holding, setHolding] = useState(false);
   const hold = async (roomTypeId: string): Promise<void> => {
+    if (holding) return; // a second click while the first request is running must not create a second hold
+    setHolding(true);
     const r = await api.POST('/api/holds', { body: { hotelId: current.hotelId, roomTypeId, checkIn: current.checkIn, checkOut: current.checkOut, guests: current.guests } });
     if (r.data) router.push(`/book/${r.data.token}`);
-    else form.setError('root', { message: toApiError(r.error).message });
+    else {
+      setHolding(false);
+      form.setError('root', { message: toApiError(r.error).message });
+    }
   };
   const err = results.error ? toApiError(results.error).message : null;
   return (
@@ -83,7 +89,7 @@ export const SearchRooms = (): ReactNode => {
                 </div>
                 <div className="text-right">
                   <p className="text-xl font-semibold">{formatMoney(rt.total, results.data.hotel.currency)}</p>
-                  <Button data-testid={`book-${rt.name}`} disabled={rt.available < 1 || rt.violations.length > 0} onClick={() => void hold(rt.roomTypeId)}>
+                  <Button data-testid={`book-${rt.name}`} disabled={holding || rt.available < 1 || rt.violations.length > 0} onClick={() => void hold(rt.roomTypeId)}>
                     Book
                   </Button>
                 </div>

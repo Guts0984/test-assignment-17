@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, uuid } from './schemas';
+import { isoDate, stayRefine, uuid } from './schemas';
 
 export const channelEventSchema = z.object({
   channelRef: z.string().min(1).max(100),
@@ -12,7 +12,7 @@ export const channelEventSchema = z.object({
   guests: z.number().int().min(1).max(10),
   guestName: z.string().max(200).optional(),
   guestEmail: z.string().email().max(200).optional(),
-});
+}).superRefine(stayRefine);
 export type ChannelEvent = z.infer<typeof channelEventSchema>;
 
 export const channelEventResultSchema = z.object({

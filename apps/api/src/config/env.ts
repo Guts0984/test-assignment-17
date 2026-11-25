@@ -17,6 +17,7 @@ const schema = z.object({
   BODY_LIMIT: z.string().default('100kb'),
   PUBLIC_WEB_URL: z.string().default('http://localhost:8088'),
   HOLD_MINUTES: z.coerce.number().int().positive().default(10),
+  HOLDS_PER_IP_MAX: z.coerce.number().int().positive().default(10),
   LOG_LEVEL: z.enum(['error', 'warn', 'log', 'debug']).default('log'),
   RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().positive().default(600),
   LOGIN_MAX_FAILS_PER_IP_EMAIL: z.coerce.number().int().positive().default(5),

@@ -29,7 +29,7 @@ interface HotelRoomType {
 
 export const createHold = async (
   deps: HoldDeps,
-  input: { hotelId: string; roomTypeId: string; checkIn: string; checkOut: string; guests: number },
+  input: { hotelId: string; roomTypeId: string; checkIn: string; checkOut: string; guests: number},
 ): Promise<Result<HoldCreated, DomainError>> =>
   inTxResult(deps.db, async (tx) => {
     const [rt] = await tx.$queryRaw<HotelRoomType[]>`

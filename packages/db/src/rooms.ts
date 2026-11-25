@@ -102,7 +102,17 @@ export const checkOut = (deps: Deps, input: { bookingId: string; actor: string }
     if (balance !== 0) return err(domainError('BALANCE_NOT_ZERO', `The balance is ${balance}, it must be zero to check out`, { balance }));
     const today = addDays(b.last_closed_date, 1);
     let early = 0;
-    if (today < b.check_out && today > b.check_in) {
+    if (today === b.check_in && today < b.check_out) {
+      // checked in and out on the arrival day: the guest did not stay a night, so every night goes back on sale and nothing is charged
+      const all = await loadNights(tx, b.id);
+      await release(tx, {
+        roomTypeId: b.room_type_id, nights: all.map((n) => n.night), kind: 'sold', overbookedNights: all.filter((n) => n.overbooked).map((n) => n.night),
+        meta: { reason: 'same_day_checkout', docId: b.id, actor: input.actor },
+      });
+      await tx.$executeRaw`DELETE FROM booking_night WHERE booking_id = ${b.id}::uuid`;
+      await tx.$executeRaw`UPDATE booking SET total_price = 0 WHERE id = ${b.id}::uuid`;
+      early = all.length;
+    } else if (today < b.check_out && today > b.check_in) {
       const unused = nightsOf(today, b.check_out);
       const nights = (await loadNights(tx, b.id)).filter((n) => unused.includes(n.night));
       await release(tx, {

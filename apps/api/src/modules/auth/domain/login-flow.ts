@@ -1,5 +1,5 @@
 import { domainError, err, ok, type DomainError, type Result } from '@hotel/shared';
-import { checkLoginBlock, normalizeEmail, recordLoginFailure, resetLoginCounter, type LoginLimits } from '../../../common/rate-limit/login-limiter';
+import { checkLoginBlock, markLoginTrusted, normalizeEmail, recordLoginFailure, resetLoginCounter, type LoginLimits } from '../../../common/rate-limit/login-limiter';
 import type { CounterStore } from '../../../common/rate-limit/store';
 import type { StaffIdentity, StaffRoleGrant } from '../../../common/auth/access';
 import type { StaffRecord } from '../repo/staff.repo';
@@ -38,6 +38,7 @@ export const createLoginFlow = (deps: LoginDeps) => ({
       return err(invalid());
     }
     await resetLoginCounter(deps.store, input.ip, email);
+    await markLoginTrusted(deps.store, input.ip, email);
     const identity: StaffIdentity = { id: staff.id, name: staff.name, roles: staff.roles };
     return ok({ accessToken: deps.sign(identity), staff: { id: staff.id, email: staff.email, name: staff.name, roles: [...staff.roles] } });
   },

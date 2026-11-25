@@ -3,8 +3,9 @@ import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, We
 import type { Server, Socket } from 'socket.io';
 import { z } from 'zod';
 import { hasRole, type StaffIdentity } from '../../common/auth/access';
-import { verifyToken } from '../../common/auth/token';
-import { ENV, type EnvValue } from '../../infra/tokens';
+import type { Db } from '@hotel/db';
+import { resolveStaff } from '../../common/auth/session';
+import { DB, ENV, type EnvValue } from '../../infra/tokens';
 import { CHANGE_FEEDS, createThrottle, roomName, type ChangeKind } from './domain/channels';
 import { startHotelListener } from './pg-listener';
 
@@ -21,7 +22,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   private readonly logger = new Logger('Realtime');
   private stop: (() => Promise<void>) | null = null;
 
-  constructor(@Inject(ENV) private readonly env: EnvValue) {}
+  constructor(
+    @Inject(ENV) private readonly env: EnvValue,
+    @Inject(DB) private readonly db: Db,
+  ) {}
 
   onModuleInit(): void {
     const throttle = createThrottle(100, Date.now);
@@ -39,9 +43,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     await this.stop?.();
   }
 
-  handleConnection(client: Socket): void {
+  async handleConnection(client: Socket): Promise<void> {
     const token = (client.handshake.auth as { token?: unknown }).token;
-    const staff = typeof token === 'string' ? verifyToken(token, this.env.JWT_SECRET) : null;
+    // the client may send `join` right after it connects, before this check has finished: `join` waits for it
+    const pending = typeof token === 'string' ? resolveStaff(this.db, token, this.env.JWT_SECRET) : Promise.resolve(null);
+    (client.data as { pending?: Promise<unknown> }).pending = pending;
+    const staff = (await pending)?.staff;
     if (!staff) {
       client.emit('error', { code: 'UNAUTHORIZED', message: 'A valid access token is required' });
       client.disconnect(true);
@@ -51,7 +58,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   }
 
   @SubscribeMessage('join')
-  join(@ConnectedSocket() client: Socket, @MessageBody() body: unknown): { ok: boolean; code?: string; joined?: string[] } {
+  async join(@ConnectedSocket() client: Socket, @MessageBody() body: unknown): Promise<{ ok: boolean; code?: string; joined?: string[] }> {
+    await (client.data as { pending?: Promise<unknown> }).pending;
     const staff = (client.data as { staff?: StaffIdentity }).staff;
     const parsed = joinBody.safeParse(body);
     if (!staff) return { ok: false, code: 'UNAUTHORIZED' };

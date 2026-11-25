@@ -13,7 +13,11 @@ export const useLiveEvents = (hotelId: string, events: readonly string[], onEven
   useEffect(() => {
     if (!hotelId) return;
     const socket = io({ path: '/socket.io', auth: { token: readToken() }, transports: ['websocket', 'polling'] });
-    socket.on('connect', () => socket.emit('join', { hotelId }));
+    // on every (re)connect: join again and refetch, because events sent while offline are gone
+    socket.on('connect', () => {
+      socket.emit('join', { hotelId });
+      handler.current();
+    });
     for (const name of key.split(',')) socket.on(name, () => handler.current());
     return () => {
       socket.disconnect();

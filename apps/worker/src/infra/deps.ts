@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { CHANNEL_INBOUND_QUEUE, CHANNEL_PUSH_QUEUE, EMAIL_QUEUE, HOLD_EXPIRY_QUEUE, NIGHT_AUDIT_QUEUE } from '@hotel/shared';
 import type { Db } from '@hotel/db';
 import type { Env } from '../config/env';
+import type { Mailer } from './mailer';
 
 export const DEPS = Symbol('WORKER_DEPS');
 
@@ -21,6 +22,7 @@ export interface WorkerDeps {
   readonly now: () => Date;
   readonly connection: Redis;
   readonly queues: Queues;
+  readonly mailer: Mailer;
 }
 
 export const createConnection = (url: string): Redis => {

@@ -1,10 +1,10 @@
-import { DynamicModule, Global, Module } from '@nestjs/common';
+import { DynamicModule, Global, Inject, Injectable, Module, type OnApplicationShutdown } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import type { Db } from '@hotel/db';
 import type { Redis } from 'ioredis';
 import type { Env } from '../config/env';
 import type { CounterStore } from '../common/rate-limit/store';
-import { CLOCK, DB, ENV, HOLD_QUEUE, INBOUND_QUEUE, LIMITER_STORE, QUEUE, REDIS, type Clock } from './tokens';
+import { CLOCK, DB, ENV, HOLD_QUEUE, INBOUND_QUEUE, LIMITER_STORE, QUEUE, REDIS, SHUTDOWN, type Clock } from './tokens';
 
 export interface InfraValues {
   readonly env: Env;
@@ -15,6 +15,18 @@ export interface InfraValues {
   readonly pushQueue: Queue;
   readonly inboundQueue: Queue;
   readonly holdQueue: Queue;
+  /** Everything created outside Nest that keeps the process alive: closed on shutdown. */
+  readonly closers: readonly (() => Promise<unknown>)[];
+}
+
+/** On SIGTERM (or app.close) Postgres, Redis and the queues are released, so the process can exit by itself. */
+@Injectable()
+export class ShutdownService implements OnApplicationShutdown {
+  constructor(@Inject(SHUTDOWN) private readonly closers: readonly (() => Promise<unknown>)[]) {}
+
+  async onApplicationShutdown(): Promise<void> {
+    await Promise.allSettled(this.closers.map((close) => close()));
+  }
 }
 
 @Global()
@@ -30,7 +42,8 @@ export class InfraModule {
       { provide: QUEUE, useValue: v.pushQueue },
       { provide: INBOUND_QUEUE, useValue: v.inboundQueue },
       { provide: HOLD_QUEUE, useValue: v.holdQueue },
+      { provide: SHUTDOWN, useValue: v.closers },
     ];
-    return { module: InfraModule, providers, exports: providers.map((p) => p.provide) };
+    return { module: InfraModule, providers: [...providers, ShutdownService], exports: providers.map((p) => p.provide) };
   }
 }

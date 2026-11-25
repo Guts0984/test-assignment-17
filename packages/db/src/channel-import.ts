@@ -72,7 +72,7 @@ const applyChange = async (deps: ImportDeps, tx: Tx, b: BookingRow, ev: Pick<Cha
     if (r.ok || b.status === 'cancelled') return done('cancelled');
     return err(r.error);
   }
-  const r = await changeBooking(deps, { bookingId: b.id, checkIn: ev.checkIn, checkOut: ev.checkOut, guests: ev.guests, actor: 'channel' });
+  const r = await changeBooking(deps, { bookingId: b.id, checkIn: ev.checkIn, checkOut: ev.checkOut, guests: ev.guests, actor: 'channel', enforceRestrictions: false });
   if (r.ok) return done('updated');
   if (r.error.code === 'INVALID_STATUS') return done('stale');
   return err(r.error);
@@ -95,8 +95,12 @@ const applyPending = (deps: ImportDeps, ref: string): Promise<Applied | null> =>
     return r;
   });
 
+/** The stored event is marked done in the SAME transaction as its effect, so a retry can never apply it twice. */
+const markInbox = (tx: Tx, inboxId: string | undefined, now: Date, result: string): Promise<unknown> =>
+  inboxId ? tx.$executeRaw`UPDATE channel_inbox SET processed_at = ${now}, result = ${result}, error = NULL WHERE id = ${inboxId}::uuid AND processed_at IS NULL` : Promise.resolve();
+
 /** One channel event, idempotent per (channelRef, version). */
-export const importChannelEvent = async (deps: ImportDeps, ev: ChannelEvent): Promise<ImportOutcome> => {
+export const importChannelEvent = async (deps: ImportDeps, ev: ChannelEvent, inboxId?: string): Promise<ImportOutcome> => {
   const step = await inTx(deps.db, async (tx): Promise<{ done: Applied } | { created: BookingRow }> => {
     await lockRef(tx, ev.channelRef);
     const b = await findByRef(tx, ev.channelRef);
@@ -106,21 +110,37 @@ export const importChannelEvent = async (deps: ImportDeps, ev: ChannelEvent): Pr
           INSERT INTO channel_pending_event (channel_ref, version, type, payload) VALUES (${ev.channelRef}, ${ev.version}, ${ev.type}, ${JSON.stringify(ev)}::jsonb)
           ON CONFLICT (channel_ref) DO UPDATE SET version = EXCLUDED.version, type = EXCLUDED.type, payload = EXCLUDED.payload, received_at = now()
           WHERE channel_pending_event.version < EXCLUDED.version`;
+        await markInbox(tx, inboxId, deps.now(), 'pending');
         return { done: view('pending', undefined) };
       }
       const created = await createBooking(tx, deps.now(), ev);
       if (!created.ok) throw Object.assign(new Error(created.error.message), { domain: created.error });
+      // an early change is waiting for this booking: the event is not finished until that change is applied
+      if (!(await pendingFor(tx, ev.channelRef, ev.version))) await markInbox(tx, inboxId, deps.now(), 'created');
       return { created: created.value };
     }
-    if (ev.type === 'new' || ev.version <= b.channel_version) return { done: view('stale', b) };
-    return { done: await applyChange(deps, tx, b, ev) };
+    if (ev.type === 'new' || ev.version <= b.channel_version) {
+      if (ev.type !== 'new' || !(await pendingFor(tx, ev.channelRef, b.channel_version))) await markInbox(tx, inboxId, deps.now(), 'stale');
+      return { done: view('stale', b) };
+    }
+    const applied = await applyChange(deps, tx, b, ev);
+    if (applied.ok) await markInbox(tx, inboxId, deps.now(), applied.value.result);
+    return { done: applied };
   }).catch((e: unknown): { done: Applied } => {
     const d = (e as { domain?: DomainError }).domain;
     if (d) return { done: err(d) };
     throw e;
   });
-  if ('done' in step) return { result: step.done, roomTypeId: ev.roomTypeId };
+  const finish = async (final: Applied): Promise<ImportOutcome> => {
+    if (inboxId && final.ok) {
+      await deps.db.$executeRaw`UPDATE channel_inbox SET processed_at = COALESCE(processed_at, ${deps.now()}), result = ${final.value.result}, error = NULL WHERE id = ${inboxId}::uuid`;
+    }
+    return { result: final, roomTypeId: ev.roomTypeId };
+  };
+  // a change that arrived before its booking is applied right after the booking exists; a retry after a
+  // crash between the two steps lands here too (the booking is already there, the early change still waits)
+  if ('done' in step && !(ev.type === 'new' && step.done.ok && step.done.value.result === 'stale')) return { result: step.done, roomTypeId: ev.roomTypeId };
   const after = await applyPending(deps, ev.channelRef);
-  if (after && after.ok) return { result: after, roomTypeId: ev.roomTypeId };
-  return { result: view('created', step.created), roomTypeId: ev.roomTypeId };
+  if (after && after.ok) return finish(after);
+  return finish('done' in step ? step.done : view('created', step.created));
 };

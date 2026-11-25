@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isIsoDate } from './dates';
+import { diffDays, isIsoDate } from './dates';
 import { BOOKING_STATUSES, ROOM_STATUSES } from './status';
 import { isoDate, money, roleSchema, uuid } from './schemas';
 
@@ -100,7 +100,8 @@ export const setRoomStatusSchema = z.object({ status: z.enum(['clean', 'inspecte
 export const setHousekeeperSchema = z.object({ housekeeperId: uuid.nullable() });
 export const outOfOrderSchema = z
   .object({ from: isoDate, to: isoDate, reason: z.string().trim().min(3).max(200) })
-  .refine((v) => !isIsoDate(v.from) || !isIsoDate(v.to) || v.to > v.from, { path: ['to'], message: '"to" (exclusive) must be after "from"' });
+  .refine((v) => !isIsoDate(v.from) || !isIsoDate(v.to) || v.to > v.from, { path: ['to'], message: '"to" (exclusive) must be after "from"' })
+  .refine((v) => !isIsoDate(v.from) || !isIsoDate(v.to) || diffDays(v.from, v.to) <= 365, { path: ['to'], message: 'A repair period can last at most 365 days' });
 export const outOfOrderResultSchema = z.object({ id: z.string(), nights: z.number() });
 export const roomStatusResultSchema = z.object({ id: z.string(), status: z.enum(ROOM_STATUSES) });
 
@@ -115,7 +116,8 @@ const hotelFields = {
   cancelFreeDays: z.number().int().min(0).max(30),
   cancelFreeUntil: hhmm,
 };
-export const createHotelSchema = z.object({ code: z.string().trim().regex(/^[A-Za-z0-9_-]{2,20}$/), ...hotelFields });
+/** `listed: false` keeps a hotel out of the public list (test hotels); it can still be used by id. */
+export const createHotelSchema = z.object({ code: z.string().trim().regex(/^[A-Za-z0-9_-]{2,20}$/), ...hotelFields, listed: z.boolean().default(true) });
 export const updateHotelSchema = z.object(hotelFields).partial();
 export const hotelSchema = z.object({ id: z.string(), code: z.string(), name: z.string(), timezone: z.string(), currency: z.string(), checkInTime: z.string(), checkOutTime: z.string(), auditTime: z.string(), cancelFreeDays: z.number(), cancelFreeUntil: z.string(), lastClosedDate: z.string() });
 export const createRoomTypeSchema = z.object({ code: z.string().trim().min(1).max(20), name: z.string().trim().min(1).max(60), rank: z.number().int().min(1).max(20), maxGuests: z.number().int().min(1).max(10) });

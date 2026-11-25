@@ -12,7 +12,7 @@ import {
 } from '@hotel/shared';
 import { inTxResult, type Db, type Tx } from './client';
 import { addFolioLine } from './folio';
-import { occupy, release } from './inventory';
+import { lockNights, occupy, release } from './inventory';
 import { hashToken } from './ids';
 import { quoteAndCheck } from './pricing';
 
@@ -33,6 +33,7 @@ export interface BookingRow {
   hold_expires_at: Date | null;
   guest_name: string | null;
   guest_email: string | null;
+  cancel_deadline: Date | null;
   timezone: string;
   audit_time: string;
   cancel_free_days: number;
@@ -55,12 +56,12 @@ const selectBooking = (tx: Tx, where: 'id' | 'token', value: string): Promise<Bo
   where === 'id'
     ? tx.$queryRaw<BookingRow[]>`
         SELECT b.id::text, b.code, b.hotel_id::text, b.room_type_id::text, b.check_in::text, b.check_out::text, b.guests, b.status::text, b.source::text,
-               b.overbooking, b.total_price, b.currency, b.penalty, b.hold_expires_at, b.guest_name, b.guest_email,
+               b.overbooking, b.total_price, b.currency, b.penalty, b.hold_expires_at, b.guest_name, b.guest_email, b.cancel_deadline,
                h.timezone, h.audit_time, h.cancel_free_days, h.cancel_free_until, h.last_closed_date::text
         FROM booking b JOIN hotel h ON h.id = b.hotel_id WHERE b.id = ${value}::uuid`
     : tx.$queryRaw<BookingRow[]>`
         SELECT b.id::text, b.code, b.hotel_id::text, b.room_type_id::text, b.check_in::text, b.check_out::text, b.guests, b.status::text, b.source::text,
-               b.overbooking, b.total_price, b.currency, b.penalty, b.hold_expires_at, b.guest_name, b.guest_email,
+               b.overbooking, b.total_price, b.currency, b.penalty, b.hold_expires_at, b.guest_name, b.guest_email, b.cancel_deadline,
                h.timezone, h.audit_time, h.cancel_free_days, h.cancel_free_until, h.last_closed_date::text
         FROM booking b JOIN hotel h ON h.id = b.hotel_id WHERE b.token_hash = ${hashToken(value)}`;
 
@@ -72,7 +73,7 @@ export const loadNights = (tx: Tx, bookingId: string): Promise<BookingNightRow[]
 
 /** What cancelling now would cost, from the locked nightly price of the first night. */
 export const quoteCancellation = (b: BookingRow, nights: readonly BookingNightRow[], now: Date) =>
-  cancellationPenalty({ now, checkIn: b.check_in, policy: policyOf(b), tz: b.timezone, firstNightPrice: nights[0]?.price ?? 0 });
+  cancellationPenalty({ now, checkIn: b.check_in, policy: policyOf(b), tz: b.timezone, firstNightPrice: nights[0]?.price ?? 0, pinnedDeadline: b.cancel_deadline });
 
 export interface CancelDeps {
   readonly db: Db;
@@ -85,7 +86,7 @@ export interface CancelDeps {
  */
 export const cancelBooking = async (
   deps: CancelDeps,
-  input: { bookingId: string; actor: string; hotelDate: string },
+  input: { bookingId: string; actor: string; hotelDate: string; expectedPenalty?: number },
 ): Promise<Result<{ penalty: number }, DomainError>> =>
   inTxResult(deps.db, async (tx) => {
     const now = deps.now();
@@ -93,6 +94,10 @@ export const cancelBooking = async (
     if (!b) return err(domainError('NOT_FOUND', 'Booking not found'));
     const nights = await loadNights(tx, b.id);
     const quote = quoteCancellation(b, nights, now);
+    if (input.expectedPenalty !== undefined && input.expectedPenalty !== quote.penalty) {
+      // the free period ended (or the price changed) after the preview: show the new terms instead of charging silently
+      return err(domainError('CONFLICT', 'The cancellation terms changed since you looked. Please check the penalty and confirm again.', { penalty: quote.penalty, free: quote.free, deadline: quote.deadline }));
+    }
     const [row] = await tx.$queryRaw<{ id: string }[]>`
       UPDATE booking SET status = 'cancelled', penalty = ${quote.penalty}, updated_at = ${now}
       WHERE id = ${b.id}::uuid AND status = 'confirmed' RETURNING id::text`;
@@ -119,13 +124,33 @@ export const releaseBookingNights = async (tx: Tx, b: BookingRow, nights: readon
 };
 
 /**
+ * After a date change the booking keeps its room if the room is free for the new dates; otherwise the
+ * assignment is dropped and the front desk assigns another room. (A change of guests alone never touches it.)
+ */
+const refitAssignment = async (tx: Tx, bookingId: string, checkIn: string, checkOut: string): Promise<void> => {
+  const rooms = await tx.$queryRaw<{ room_id: string }[]>`SELECT room_id::text FROM room_assignment WHERE booking_id = ${bookingId}::uuid`;
+  const roomId = rooms.length === 1 ? rooms[0]?.room_id : undefined;
+  if (roomId) {
+    await tx.$queryRaw`SELECT id FROM room WHERE id = ${roomId}::uuid FOR UPDATE`;
+    const [clash] = await tx.$queryRaw<{ n: bigint }[]>`
+      SELECT count(*) n FROM room_assignment WHERE room_id = ${roomId}::uuid AND booking_id <> ${bookingId}::uuid AND nights && daterange(${checkIn}::date, ${checkOut}::date)`;
+    if (Number(clash?.n ?? 1) === 0) {
+      await tx.$executeRaw`UPDATE room_assignment SET nights = daterange(${checkIn}::date, ${checkOut}::date) WHERE booking_id = ${bookingId}::uuid AND room_id = ${roomId}::uuid`;
+      return;
+    }
+  }
+  await tx.$executeRaw`DELETE FROM room_assignment WHERE booking_id = ${bookingId}::uuid`;
+};
+
+/**
  * Changes the dates / guests. Everything happens in one transaction: if the new nights
  * cannot be taken, it rolls back and the old booking and inventory stay untouched.
  * Kept nights keep their price; new nights use the current rate.
  */
 export const changeBooking = async (
   deps: CancelDeps,
-  input: { bookingId: string; checkIn: string; checkOut: string; guests: number; actor: string },
+  /** `enforceRestrictions: false` is for the sales channel: it sold the stay already, restrictions apply to our own sales. */
+  input: { bookingId: string; checkIn: string; checkOut: string; guests: number; actor: string; enforceRestrictions?: boolean },
 ): Promise<Result<{ total: number }, DomainError>> =>
   inTxResult(deps.db, async (tx) => {
       const now = deps.now();
@@ -139,10 +164,14 @@ export const changeBooking = async (
       const old = await loadNights(tx, b.id);
       const oldPrice = new Map(old.map((n) => [n.night, n]));
       const newNights = nightsOf(input.checkIn, input.checkOut);
-      const quote = await quoteAndCheck(tx, { roomTypeId: b.room_type_id, checkIn: input.checkIn, checkOut: input.checkOut });
+      const quote = await quoteAndCheck(tx, { roomTypeId: b.room_type_id, checkIn: input.checkIn, checkOut: input.checkOut, enforceRestrictions: input.enforceRestrictions });
       if (!quote.ok) return quote;
       const removed = old.filter((n) => !newNights.includes(n.night));
       const added = newNights.filter((n) => !oldPrice.has(n));
+      // every night this change touches is locked once, in ascending order, before anything is released or
+      // taken: two guests swapping dates can then never wait for each other's nights in opposite orders
+      const touched = [...new Set([...removed.map((n) => n.night), ...added])].sort();
+      if (touched.length > 0) await lockNights(tx, b.room_type_id, touched);
       await release(tx, {
         roomTypeId: b.room_type_id, nights: removed.map((n) => n.night), kind: 'sold',
         overbookedNights: removed.filter((n) => n.overbooked).map((n) => n.night),
@@ -163,6 +192,11 @@ export const changeBooking = async (
       await tx.$executeRaw`
         UPDATE booking SET check_in = ${input.checkIn}::date, check_out = ${input.checkOut}::date, guests = ${input.guests}, total_price = ${Number(total)},
                overbooking = ${b.overbooking || over.size > 0}, updated_at = ${now} WHERE id = ${b.id}::uuid`;
-      await tx.$executeRaw`DELETE FROM room_assignment WHERE booking_id = ${b.id}::uuid`;
+      const datesChanged = input.checkIn !== b.check_in || input.checkOut !== b.check_out;
+      // free cancellation that already ended does not come back by moving the dates
+      const current = quoteCancellation(b, old, now);
+      const pinned = current.free ? null : new Date(current.deadline);
+      await tx.$executeRaw`UPDATE booking SET cancel_deadline = ${pinned} WHERE id = ${b.id}::uuid`;
+      if (datesChanged) await refitAssignment(tx, b.id, input.checkIn, input.checkOut);
       return ok({ total: Number(total) });
   });

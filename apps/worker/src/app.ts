@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { createDb } from '@hotel/db';
 import type { Env } from './config/env';
 import { createConnection, createQueues, type WorkerDeps } from './infra/deps';
+import { createMailer } from './infra/mailer';
 import { WorkerModule } from './worker.module';
 
 export interface WorkerApp {
@@ -21,6 +22,7 @@ export const createWorkerApp = async (opts: { env: Env; now?: () => Date; reconc
     now: opts.now ?? (() => new Date()),
     connection,
     queues: createQueues(connection),
+    mailer: createMailer(opts.env),
   };
   const context = await NestFactory.createApplicationContext(WorkerModule.forRoot(deps, { reconciler: opts.reconciler }), {
     logger: opts.logger === false ? false : ['error', 'warn', 'log'],

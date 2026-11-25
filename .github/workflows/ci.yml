@@ -1,8 +1,36 @@
 name: ci
 on: [push, pull_request]
 
+# Four independent jobs, so they run side by side.
 jobs:
-  check:
+  static:
+    name: typecheck and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @hotel/shared run build
+      - run: pnpm --filter @hotel/migrate run typecheck
+      - run: pnpm --filter @hotel/db run build
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  tests:
+    name: tests and generated client
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -21,12 +49,12 @@ jobs:
       DB_USER: hotel
       DB_PASSWORD: ci-db-password
       DB_NAME: hotel
+      DATABASE_URL: postgresql://hotel:ci-db-password@localhost:5432/hotel
       REDIS_URL: redis://localhost:6379
       TEST_REDIS_BASE: redis://localhost:6379
       JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
       CHANNEL_API_KEY: ci-channel-key
       CHANNEL_HMAC_SECRET: ci-channel-hmac
-      DATABASE_URL: postgresql://hotel:ci-db-password@localhost:5432/hotel
       SEED_BOOKINGS_PER_HOTEL: '2000'
       SEED_HISTORY_DAYS: '30'
     steps:
@@ -36,14 +64,46 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @hotel/shared run build
-      - run: pnpm --filter @hotel/migrate run typecheck
+      - run: pnpm --filter @hotel/migrate run build
       - run: pnpm --filter @hotel/db run build
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - name: Migrate and seed (small seed in CI)
-        run: pnpm --filter @hotel/migrate run build && pnpm --filter @hotel/migrate run migrate && pnpm --filter @hotel/migrate run seed
+      - run: pnpm --filter @hotel/worker run build # the kill -9 test starts the real worker process
+      - name: Migrate and seed the application database (small seed)
+        run: pnpm --filter @hotel/migrate run migrate && pnpm --filter @hotel/migrate run seed
       - name: Generated API client is up to date
         run: pnpm gen:api && git diff --exit-code -- apps/web/openapi.json apps/web/src/shared/api/schema.d.ts
-      - run: pnpm --filter @hotel/worker run build # the kill -9 test starts the real worker process
-      - run: pnpm test
-      - run: pnpm build
+      - name: Unit and integration tests (they create and migrate their own database)
+        run: pnpm test
+
+  e2e:
+    name: e2e (Playwright on the compose stack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: The documented start, with a small seed
+        run: |
+          cp .env.example .env
+          sed -i 's/^SEED_BOOKINGS_PER_HOTEL=.*/SEED_BOOKINGS_PER_HOTEL=2000/; s/^SEED_HISTORY_DAYS=.*/SEED_HISTORY_DAYS=30/' .env
+          docker compose up --build -d
+      - name: Wait for the stack
+        run: |
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8088/api/health >/dev/null && curl -sf http://localhost:8088/ >/dev/null && curl -sf http://localhost:58025/api/v1/info >/dev/null && exit 0
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --tail=80
+          exit 1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @hotel/shared run build
+      - run: pnpm --filter @hotel/web exec playwright install --with-deps chromium
+      - run: pnpm e2e
+        env: { CI: 'true' }
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: apps/web/test-results }

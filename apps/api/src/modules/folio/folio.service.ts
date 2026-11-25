@@ -31,6 +31,10 @@ export class FolioService {
     unwrap(
       await inTxResult(this.db, async (tx) => {
         if (ctx.status === 'held' || ctx.status === 'expired') return err(domainError('INVALID_STATUS', 'A held or expired booking has no folio'));
+        // payments and refunds can still settle a finished stay or a penalty; new charges only belong to a live stay
+        if (input.kind === 'charge' && ctx.status !== 'confirmed' && ctx.status !== 'checked_in') {
+          return err(domainError('INVALID_STATUS', `Charges cannot be added to a booking that is ${ctx.status}`));
+        }
         await addFolioLine(tx, { bookingId, ...input, hotelDate: ctx.hotelDate, actor: staff.id });
         return ok(true);
       }),

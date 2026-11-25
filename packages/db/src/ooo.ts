@@ -35,6 +35,11 @@ export const addOutOfOrder = (
       const [room] = await tx.$queryRaw<{ room_type_id: string }[]>`SELECT room_type_id::text FROM room WHERE id = ${input.roomId}::uuid FOR UPDATE`;
       if (!room) return err(domainError('NOT_FOUND', 'Room not found'));
       if (diffDays(input.from, input.to) > 366) return err(domainError('VALIDATION_ERROR', 'The period is limited to one year'));
+      if (input.from < input.hotelDate) return err(domainError('VALIDATION_ERROR', 'A repair period cannot start in the past'));
+      const [taken] = await tx.$queryRaw<{ code: string }[]>`
+        SELECT b.code FROM room_assignment a JOIN booking b ON b.id = a.booking_id
+        WHERE a.room_id = ${input.roomId}::uuid AND b.status IN ('confirmed', 'checked_in') AND a.nights && daterange(${input.from}::date, ${input.to}::date) LIMIT 1`;
+      if (taken) return err(domainError('CONFLICT', `The room is assigned to booking ${taken.code} in this period. Move the guest to another room first.`));
       const nights = nightsOf(input.from, input.to);
       await lockNights(tx, room.room_type_id, nights);
       const [row] = await tx.$queryRaw<{ id: string }[]>`

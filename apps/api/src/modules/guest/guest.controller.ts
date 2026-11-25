@@ -3,8 +3,9 @@ import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import type { Request } from 'express';
 import { Public } from '../../common/auth/auth.guard';
 import { unwrap } from '../../common/http-error';
+import { clientIp } from '../../common/rate-limit/client-ip';
 import {
-  BookingViewDto, ChangeBookingDto, ConfirmHoldDto, ConfirmResponseDto, CreateHoldDto, HoldResponseDto, HotelListDto, SearchQueryDto, SearchResultDto,
+  BookingViewDto, CancelBookingDto, ChangeBookingDto, ConfirmHoldDto, ConfirmResponseDto, CreateHoldDto, HoldResponseDto, HotelListDto, SearchQueryDto, SearchResultDto,
 } from './dto/guest.dto';
 import { GuestService } from './guest.service';
 
@@ -35,8 +36,8 @@ export class GuestController {
   @Post('holds')
   @ApiOperation({ operationId: 'createHold', summary: 'Hold a room for 10 minutes (all nights or none)' })
   @ApiOkResponse({ type: HoldResponseDto })
-  async hold(@Body() body: CreateHoldDto) {
-    return unwrap(await this.guest.hold(body));
+  async hold(@Body() body: CreateHoldDto, @Req() req: Request) {
+    return unwrap(await this.guest.hold(body, clientIp(req)));
   }
 
   @Post('holds/:token/confirm')
@@ -65,7 +66,7 @@ export class GuestController {
   @HttpCode(200)
   @ApiOperation({ operationId: 'cancelManagedBooking' })
   @ApiOkResponse({ type: BookingViewDto })
-  async cancel(@Param('token') token: string, @Req() req: Request) {
-    return unwrap(await this.guest.cancel(req, token));
+  async cancel(@Param('token') token: string, @Body() body: CancelBookingDto, @Req() req: Request) {
+    return unwrap(await this.guest.cancel(req, token, body.expectedPenalty));
   }
 }

@@ -25,8 +25,10 @@ export const cancellationPenalty = (input: {
   policy: CancellationPolicy;
   tz: string;
   firstNightPrice: number;
+  /** A deadline fixed earlier (a booking changed after its free period ended keeps it). */
+  pinnedDeadline?: Date | null;
 }): PenaltyQuote => {
-  const deadline = cancellationDeadline(input.checkIn, input.policy, input.tz);
+  const deadline = input.pinnedDeadline ?? cancellationDeadline(input.checkIn, input.policy, input.tz);
   const free = input.now.getTime() < deadline.getTime();
   return { deadline: deadline.toISOString(), free, penalty: free ? 0 : input.firstNightPrice };
 };

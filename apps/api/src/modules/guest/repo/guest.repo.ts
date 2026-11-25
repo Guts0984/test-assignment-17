@@ -2,7 +2,7 @@ import { loadBookingById, loadBookingByToken, loadNights, type BookingNightRow, 
 import type { InventoryNight } from '../domain/search';
 
 export const listHotels = (db: Db) =>
-  db.hotel.findMany({ select: { id: true, code: true, name: true, timezone: true, currency: true }, orderBy: { code: 'asc' } });
+  db.hotel.findMany({ where: { listed: true }, select: { id: true, code: true, name: true, timezone: true, currency: true }, orderBy: { code: 'asc' } });
 
 export const findHotel = (db: Db, id: string) => db.hotel.findUnique({ where: { id }, select: { id: true, name: true, timezone: true, currency: true } });
 

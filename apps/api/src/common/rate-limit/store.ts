@@ -10,6 +10,8 @@ export interface CounterStore {
   /** Seconds left on a flag (0 if it is not set). */
   readonly ttl: (key: string) => Promise<number>;
   readonly del: (key: string) => Promise<void>;
+  /** Takes one back (never below zero). */
+  readonly decr: (key: string) => Promise<void>;
 }
 
 const INCR_LUA = `local c = redis.call('INCR', KEYS[1]); if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; return c`;
@@ -20,6 +22,7 @@ export const createRedisStore = (redis: Redis): CounterStore => ({
   setFlag: async (key, ttlSec) => void (await redis.set(key, '1', 'EX', ttlSec)),
   ttl: async (key) => Math.max(0, await redis.ttl(key)),
   del: async (key) => void (await redis.del(key)),
+  decr: async (key) => void (await redis.eval("local c = redis.call('GET', KEYS[1]); if c and tonumber(c) > 0 then return redis.call('DECR', KEYS[1]) end; return 0", 1, key)),
 });
 
 interface Entry {
@@ -52,6 +55,10 @@ export const createMemoryStore = (now: () => Date): CounterStore => {
       return e ? Math.max(1, Math.ceil((e.expiresAt - now().getTime()) / 1000)) : 0;
     },
     del: async (key) => void entries.delete(key),
+    decr: async (key) => {
+      const e = live(key);
+      if (e && e.count > 0) entries.set(key, { ...e, count: e.count - 1 });
+    },
   };
 };
 
@@ -73,5 +80,6 @@ export const createFallbackStore = (primary: CounterStore, fallback: CounterStor
     setFlag: guarded((s) => s.setFlag),
     ttl: guarded((s) => s.ttl),
     del: guarded((s) => s.del),
+    decr: guarded((s) => s.decr),
   };
 };

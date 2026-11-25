@@ -17,6 +17,7 @@ No other manual step. The first start applies the migrations and loads the seed 
 | Site and staff screens | http://localhost:8088 (nginx → web) |
 | Swagger | http://localhost:8088/docs |
 | Channel stub (page with live availability, send buttons) | http://localhost:54000 |
+| Mailpit (inbox of every email the system sends) | http://localhost:58025 |
 | Postgres / Redis (local tests only) | 127.0.0.1:55432 / 127.0.0.1:56379 |
 
 The two api copies expose no host ports; every request reaches them through nginx.
@@ -32,20 +33,19 @@ The two api copies expose no host ports; every request reaches them through ngin
 | Head housekeeper | `head@<hotel>.test` |
 | Housekeepers | `maid1@<hotel>.test`, `maid2@…`, `maid3@…` (each sees only the rooms given to them) |
 
-Guests need no account: the confirmation email (written to the worker log, `docker compose logs worker`) carries the manage link.
+Guests need no account: the confirmation email carries the manage link. The worker sends it over SMTP to Mailpit; open http://localhost:58025 to read it.
 
 ### Tests
 
 ```bash
 pnpm install
 docker compose up -d postgres redis         # real Postgres and Redis, no mocks
-docker compose stop worker                  # the api suite runs its own BullMQ workers
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
 pnpm gen:api                                # regenerates the OpenAPI client; CI fails on a diff
 pnpm e2e                                    # Playwright against the running compose stack
 ```
 
-Tests create their own small data (a fresh hotel with a few rooms), so they stay fast and do not depend on the big seed. The full seed is only for compose and the performance check. CI loads a small seed (`SEED_BOOKINGS_PER_HOTEL=2000`, `SEED_HISTORY_DAYS=30`).
+`pnpm test` creates and migrates its own database (`hotel_test`) and uses its own Redis database numbers, so it never touches the data of a running compose stack and can run next to it (including its worker). Tests create their own small data (a fresh hotel with a few rooms), so they stay fast and do not depend on the big seed. The full seed is only for compose and the performance check. CI loads a small seed (`SEED_BOOKINGS_PER_HOTEL=2000`, `SEED_HISTORY_DAYS=30`) and runs four jobs side by side: typecheck and lint; build; tests plus the generated-client check; and the Playwright e2e on the real compose stack. The e2e specs also run in parallel with each other, each on its own freshly created hotel.
 
 | Suite | What it proves |
 | --- | --- |
@@ -57,10 +57,11 @@ Tests create their own small data (a fresh hotel with a few rooms), so they stay
 | `apps/api/test/permissions` | route sweep (401 without a token, 403 with the wrong role on every protected route), IDOR, guest-link limiter, bad input |
 | `apps/api/test/{frontdesk,housekeeping,admin,reports,realtime}` | check-in rules, folio and storno, early check-out, move/extend rollback, own-rooms-only, failed job retry, report numbers, a booking on api copy B reaching a manager socket on copy A in under a second |
 | `apps/worker/test` | hold expiry once with two workers, 3-day catch-up in order, Kyiv DST nights, `FLUSHALL`, push retries with valid signatures and growing versions, stub chaos mode, `kill -9` of a worker in the middle of the audit, out-of-order periods starting and ending with the hotel date |
+| `apps/worker/test/email` | the mail reaches a real SMTP server once with the booking number and manage link; a refused mail stays unsent and is retried |
 | `apps/channel-stub/test` | bad signature 401, older versions ignored, the live event stream fires when a push is accepted |
 | `apps/web/e2e` | the four flows of the assignment (see below) and the phone layout |
 
-The four e2e flows run against the real stack: guest search → hold → confirm → email in the worker log → the channel stub shows one room less; front desk assign → check-in → real night audit → payment → check-out → room dirty → housekeeper cleans (375 px phone) → head inspects → room available again, plus the no-show with its penalty; channel booking on a sold night → overbooking at the front desk → free upgrade at check-in; cancel after the deadline → penalty shown first, one penalty line on the account.
+The four e2e flows run against the real stack: guest search → hold → confirm → the email in Mailpit → the channel stub shows one room less; front desk assign → check-in → real night audit → payment → check-out → room dirty → housekeeper cleans (375 px phone) → head inspects → room available again, plus the no-show with its penalty; channel booking on a sold night → overbooking at the front desk → free upgrade at check-in; cancel after the deadline → penalty shown first, one penalty line on the account.
 
 ## Architecture
 
@@ -123,9 +124,9 @@ Each date closes once. Catch-up after downtime closes missed dates one by one, i
 | `channel-inbound` | by the api for every new channel event, after the event is stored in `channel_inbox`; the reconciler re-creates it for unprocessed rows | `processed_at` on the row; the import itself is idempotent per (reference, version) |
 | `night-audit` | by the reconciler for every hotel whose next audit instant has passed | `closeNextDate` locks the hotel row and `night_audit` is unique; catches up date by date |
 | `channel-push` | by the api after any availability, rate or restriction change (3 s delay, jobId `push-<roomType>` = debounce) and by the reconciler for `channel_dirty` rows | every attempt reads the **current** state and takes a new `channel_push_version`; exponential backoff, `JOB_ATTEMPTS` attempts |
-| `email` | by the reconciler for unsent `email_outbox` rows | `sent_at IS NULL` conditional update |
+| `email` | by the reconciler for unsent `email_outbox` rows | the row is locked (`SKIP LOCKED`), sent over SMTP, and marked sent in the same transaction; a refused mail is retried |
 
-The reconciler is a plain `setInterval` in the worker (not a BullMQ repeatable job), so a Redis wipe cannot remove it. Every `RECONCILE_INTERVAL_MS` (5 s) it rebuilds pending jobs from Postgres. After `FLUSHALL` holds still expire, audits still close, pushes still go out, and nothing runs twice (tested). Failed jobs stay in BullMQ; the chain administrator sees them in the admin screen and can run them again (`/api/admin/jobs`).
+The reconciler is a plain `setInterval` in the worker (not a BullMQ repeatable job), so a Redis wipe cannot remove it. Every `RECONCILE_INTERVAL_MS` (5 s) it rebuilds pending jobs from Postgres. After `FLUSHALL` holds still expire, audits still close, pushes still go out, and nothing runs twice (tested). If a worker is killed (`kill -9`), the job it was running is taken over by another worker about 15 seconds later (`WORKER_LOCK_MS`, the job lock, is 10 s); the work itself is idempotent, so nothing is done twice. Failed jobs stay in BullMQ; the chain administrator sees them in the admin screen and can run them again (`/api/admin/jobs`).
 
 A hold is released by its own delayed job at the moment it ends. If that job was lost with Redis, the reconciler releases it within one tick (5 s). Either way, confirming an expired hold is refused immediately by the database condition, so the guest never gets a booking that has already expired.
 
@@ -194,6 +195,7 @@ Staff passwords: argon2id. Staff get a JWT access token carrying their roles per
 - Live updates: Postgres triggers `NOTIFY` on commit; each api copy `LISTEN`s and emits to its sockets (throttled to 100 ms). This also covers changes made by the worker. The Socket.IO Redis adapter is installed for room operations across the copies.
 - Move-room is limited to the same room type. Extending a stay checks stop-sell on the new nights and closed-to-departure on the new check-out date. Resolving an overbooking needs the same currency and a higher class.
 - Out-of-order periods are `[from, to)`. The night audit puts a room out of service when its period starts and returns it as `dirty` when the period ends; removing a period by hand does the same.
+- Channel changes skip min stay and stop-sell, like channel bookings: the channel already sold the stay. Dates without a rate are still refused (and the reason is kept on the inbox row).
 - A free upgrade moves the sale to the higher room type; the guest keeps the locked nightly prices.
 - Seed: 150 rooms per hotel cannot hold 250 in-house bookings, so "about 250 in-house" is read as guests: each hotel has 140 checked-in bookings with about 250 guests, about 60 arrivals and about 60 departures today, 3 overbooked channel bookings and 4 rooms out of order.
 - The JWT carries the roles, so a role change takes effect when the token expires (`JWT_TTL_SEC`, 8 h).
@@ -212,8 +214,3 @@ Staff passwords: argon2id. Staff get a JWT access token carrying their roles per
 Everything in the assignment is built, with these gaps:
 
 - **No refresh-token rotation**: one access token per login, roles inside it (see decisions).
-- **e2e is not in CI**: the Playwright flows need the whole compose stack, so they run locally with `pnpm e2e`. CI runs typecheck, lint, the generated-client check, migrations and a small seed, all test suites, and the build. Only Chromium is installed for e2e.
-- **Channel modify** goes through the same change function as a guest change, so it also enforces restrictions such as min stay and stop-sell on the new dates, and a night without a rate gives `409 NO_AVAILABILITY`. New channel bookings do not enforce restrictions.
-- **Emails** are written to the worker log (the `email_outbox` table is the record); there is no SMTP or Mailpit container.
-- **Dependency note**: the api suite shares queues with a running compose worker, so stop it first (`docker compose stop worker`), as in the test commands above.
-- The `eslint-plugin-boundaries` configuration uses its older option names; they work but print deprecation warnings.

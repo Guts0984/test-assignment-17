@@ -113,6 +113,22 @@ describe('channel import (api stores and queues, a BullMQ worker applies)', () =
     await assertConsistent(a.db);
   });
 
+  it('a channel change is not blocked by min stay or stop-sell on the new dates (the channel already sold it)', async () => {
+    const f = await createFixture(a.db, { rooms: 2 });
+    const ref = `OTA-${randomUUID()}`;
+    await a.db.$executeRaw`
+      INSERT INTO restriction (room_type_id, night, min_stay, stop_sell)
+      SELECT ${f.roomTypeId}::uuid, d, 5, true FROM unnest(${[addDays(TEST_TODAY, 20), addDays(TEST_TODAY, 21)] as string[]}::date[]) AS d`;
+    expect((await send(f, ref, 1, 'new', 4, 6)).status).toBe(202);
+    await settled([ref], 1);
+    expect((await send(f, ref, 2, 'modify', 20, 22)).status).toBe(202);
+    const rows = await settled([ref], 2);
+    expect(resultOf(rows, 2, 'modify')).toBe('updated');
+    const [row] = await a.db.$queryRaw<{ check_in: string }[]>`SELECT check_in::text FROM booking WHERE channel_ref = ${ref}`;
+    expect(row?.check_in).toBe(addDays(TEST_TODAY, 20));
+    await assertConsistent(a.db);
+  });
+
   it('200 parallel bookings (web and channel) on the last 5 rooms: none lost, rooms never oversold, extras are overbooking', async () => {
     const f = await createFixture(a.db, { rooms: 5 });
     const ci = 8;
@@ -123,7 +139,7 @@ describe('channel import (api stores and queues, a BullMQ worker applies)', () =
     const [webResults, chanResults] = await Promise.all([web, chan]);
     expect(chanResults.every((r) => r.status === 202)).toBe(true);
     const rows = await settled(refs, 100);
-    expect(rows.every((r) => r.result === 'created')).toBe(true);
+    expect(rows.filter((r) => r.result !== 'created').map((r) => `${r.result}: ${r.error}`)).toEqual([]);
     const webConfirmed = webResults.filter((r) => r.confirmStatus === 200).length;
     const bookings = await bookingsOf(f);
     const chanBookings = bookings.filter((r) => r.channel_ref !== null);
