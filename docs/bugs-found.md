@@ -1,0 +1,2 @@
+- packages/db checkOut: with a split room_assignment (moved guest) the early-checkout range update and the "room becomes dirty" subquery touched/returned several rows; now only the last range is shortened and every assigned room of the booking is handled.
+- room_assignment had booking_id as the primary key, so a moved guest could not hold two rooms; migration 0004_staff makes the key (booking_id, room_id).

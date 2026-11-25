@@ -1,0 +1,13 @@
+{
+  "name": "@hotel/channel-stub",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "echo 'covered by api and worker integration tests'"
+  },
+  "dependencies": { "@hotel/shared": "workspace:*", "zod": "^3.24.1" },
+  "devDependencies": { "@types/node": "^22.10.0", "typescript": "^5.7.2" }
+}

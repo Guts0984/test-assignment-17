@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Public } from '../../common/auth/auth.guard';
 import { unwrap } from '../../common/http-error';
@@ -23,6 +23,10 @@ export class GuestController {
 
   @Get('search')
   @ApiOperation({ operationId: 'search', summary: 'Available room types with the price for the whole stay and per night' })
+  @ApiQuery({ name: 'hotelId', required: true })
+  @ApiQuery({ name: 'checkIn', required: true, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'checkOut', required: true, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'guests', required: true, type: Number })
   @ApiOkResponse({ type: SearchResultDto })
   async search(@Query() q: SearchQueryDto) {
     return unwrap(await this.guest.search(q));

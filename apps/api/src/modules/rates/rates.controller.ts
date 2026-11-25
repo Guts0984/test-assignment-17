@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { StaffIdentity } from '../../common/auth/access';
 import { Roles } from '../../common/auth/auth.guard';
 import { CurrentStaff } from '../../common/auth/current-staff';
@@ -50,6 +50,8 @@ export class RatesController {
   @Get('grid')
   @Roles('revenue', 'admin', 'frontdesk')
   @ApiOperation({ operationId: 'getGrid', summary: 'Sold, free, price and restrictions per room type and night' })
+  @ApiQuery({ name: 'from', required: false, description: 'YYYY-MM-DD, default: hotel today' })
+  @ApiQuery({ name: 'days', required: false, type: Number })
   @ApiOkResponse({ type: GridDto })
   grid(@Param('hotelId', ParseUUIDPipe) hotelId: string, @Query() q: GridQueryDto, @CurrentStaff() staff: StaffIdentity) {
     requireHotel(staff, hotelId, ['revenue', 'admin', 'frontdesk']);

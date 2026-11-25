@@ -15,6 +15,7 @@ import { createFallbackStore, createMemoryStore, createRedisStore } from './comm
 import type { Env } from './config/env';
 import { systemClock } from './infra/clock';
 import { createLimiterRedis, createQueueRedis } from './infra/redis';
+import { RedisIoAdapter } from './infra/redis-io.adapter';
 import type { Clock } from './infra/tokens';
 import { describeApi } from './openapi';
 
@@ -46,6 +47,7 @@ export const createApp = async (opts: CreateAppOptions): Promise<NestExpressAppl
     logger: [env.LOG_LEVEL],
     cors: { origin: [...env.corsOrigins] },
   });
+  app.useWebSocketAdapter(new RedisIoAdapter(app, env.REDIS_URL));
   app.set('trust proxy', [...env.trustedProxies]);
   app.disable('x-powered-by');
   app.use(helmet());

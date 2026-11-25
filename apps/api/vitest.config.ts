@@ -12,6 +12,7 @@ export default defineConfig({
     hookTimeout: 60_000,
     env: {
       LOG_LEVEL: 'error',
+      RATE_LIMIT_GLOBAL_PER_MIN: '100000',
       DB_HOST: fromEnv('DB_HOST', '127.0.0.1'),
       DB_PORT: fromEnv('DB_PORT', '55432'),
       DB_USER: fromEnv('DB_USER', 'hotel'),

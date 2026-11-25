@@ -7,3 +7,7 @@ export * from './price';
 export * from './status';
 export * from './errors';
 export * from './schemas';
+export * from './queues';
+export * from './schemas-channel';
+export * from './schemas-staff';
+export * from './schemas-reports';

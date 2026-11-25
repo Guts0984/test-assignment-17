@@ -7,3 +7,5 @@ export * from './folio';
 export * from './bookings';
 export * from './audit';
 export * from './rooms';
+export * from './stay';
+export * from './ooo';

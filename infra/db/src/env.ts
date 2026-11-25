@@ -6,6 +6,8 @@ const schema = z.object({
   DB_USER: z.string().default('hotel'),
   DB_PASSWORD: z.string().min(1),
   DB_NAME: z.string().default('hotel'),
+  SEED_BOOKINGS_PER_HOTEL: z.coerce.number().int().min(0).default(100_000),
+  SEED_HISTORY_DAYS: z.coerce.number().int().min(7).max(365).default(365),
   SEED_PASSWORD: z.string().min(8).default('demo-pass-123'),
 });
 

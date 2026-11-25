@@ -26,7 +26,7 @@ const loadRoom = async (tx: Tx, roomId: string): Promise<RoomRow | undefined> =>
 const lockBooking = (tx: Tx, id: string) => tx.$queryRaw<{ id: string }[]>`SELECT id::text FROM booking WHERE id = ${id}::uuid FOR UPDATE`;
 
 /** Mapping the exclusion constraint violation to a clean domain error. */
-const mapRoomConflict = async <T>(run: () => Promise<Result<T, DomainError>>): Promise<Result<T, DomainError>> => {
+export const mapRoomConflict = async <T>(run: () => Promise<Result<T, DomainError>>): Promise<Result<T, DomainError>> => {
   try {
     return await run();
   } catch (e) {
@@ -111,10 +111,10 @@ export const checkOut = (deps: Deps, input: { bookingId: string; actor: string }
       });
       await tx.$executeRaw`DELETE FROM booking_night WHERE booking_id = ${b.id}::uuid AND night >= ${today}::date`;
       await tx.$executeRaw`UPDATE booking SET check_out = ${today}::date, total_price = (SELECT COALESCE(sum(price), 0) FROM booking_night WHERE booking_id = ${b.id}::uuid) WHERE id = ${b.id}::uuid`;
-      await tx.$executeRaw`UPDATE room_assignment SET nights = daterange(${b.check_in}::date, ${today}::date) WHERE booking_id = ${b.id}::uuid`;
+      await tx.$executeRaw`UPDATE room_assignment SET nights = daterange(lower(nights), ${today}::date) WHERE booking_id = ${b.id}::uuid AND upper(nights) = ${b.check_out}::date`;
       early = unused.length;
     }
     await tx.$executeRaw`UPDATE booking SET status = 'checked_out', updated_at = ${deps.now()} WHERE id = ${b.id}::uuid AND status = 'checked_in'`;
-    await tx.$executeRaw`UPDATE room SET status = 'dirty' WHERE id = (SELECT room_id FROM room_assignment WHERE booking_id = ${b.id}::uuid)`;
+    await tx.$executeRaw`UPDATE room SET status = 'dirty' WHERE id IN (SELECT room_id FROM room_assignment WHERE booking_id = ${b.id}::uuid)`;
     return ok({ earlyRelease: early });
   });

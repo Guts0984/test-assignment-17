@@ -284,3 +284,11 @@ model EmailOutbox {
   @@index([sentAt])
   @@map("email_outbox")
 }
+
+model ChannelPushState {
+  roomTypeId  String   @id @map("room_type_id") @db.Uuid
+  lastSentAt  DateTime @map("last_sent_at") @db.Timestamptz(3)
+  lastVersion BigInt   @map("last_version")
+
+  @@map("channel_push_state")
+}
