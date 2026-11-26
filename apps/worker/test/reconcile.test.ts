@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { confirmHold, createHold } from '@hotel/db';
-import { addDays } from '@hotel/shared';
+import { addDays, channelPushSchema } from '@hotel/shared';
 import { jobOptions } from '../src/infra/deps';
+import { buildCurrentState } from '../src/jobs/channel-state';
 import { reconcileOnce } from '../src/jobs/reconciler';
 import { assertConsistent, createFixture, num, openDb, PAST_TODAY, startPushServer, startWorkers, testEnv, waitFor } from './helpers';
 
@@ -22,7 +23,7 @@ describe('Redis loss', () => {
     const kept = await createHold({ db, now, holdMinutes: 10 }, { hotelId: f.hotelId, roomTypeId: f.roomTypeId, checkIn: addDays(PAST_TODAY, 8), checkOut: addDays(PAST_TODAY, 9), guests: 2 });
     if (!kept.ok) throw new Error(kept.error.message);
     await confirmHold({ db, now, holdMinutes: 10, manageUrl: (t) => t }, kept.value.token, { guestName: 'G', guestEmail: mail, guestPhone: '1' });
-    await db.$executeRaw`INSERT INTO channel_dirty (room_type_id, dirty_at) VALUES (${f.roomTypeId}::uuid, now())`;
+    await db.$executeRaw`INSERT INTO channel_dirty (room_type_id, dirty_at) VALUES (${f.roomTypeId}::uuid, now()) ON CONFLICT (room_type_id) DO UPDATE SET dirty_at = now()`;
     const server = await startPushServer(async () => 200);
     const env = testEnv({ CHANNEL_PUSH_URL: server.url, CHANNEL_PUSH_DAYS: '5' });
     const [probe] = await startWorkers(env, now, 1);
@@ -52,8 +53,12 @@ describe('Redis loss', () => {
       }, 'queues drained');
       expect(await num(db.$queryRaw`SELECT count(*) n FROM inventory_journal WHERE reason = 'hold_expired' AND doc_id = ${h.value.bookingId}::uuid`)).toBe(1);
       expect(await num(db.$queryRaw`SELECT count(*) n FROM night_audit WHERE hotel_id = ${f.hotelId}::uuid`)).toBe(1);
-      const mine = server.received.filter((r) => r.raw.includes(f.roomTypeId));
-      expect(mine).toHaveLength(1);
+      // the expiry and the audit mark the room type stale themselves, so one or two pushes are both right (it depends on
+      // whether they land before the first push); what must hold is that versions only grow and the last one is current
+      const mine = server.received.filter((r) => r.raw.includes(f.roomTypeId)).map((r) => channelPushSchema.parse(JSON.parse(r.raw)));
+      expect(mine.length).toBeGreaterThanOrEqual(1);
+      expect(mine.every((p, i) => i === 0 || p.version > (mine[i - 1]?.version ?? 0))).toBe(true);
+      expect(mine.at(-1)?.nights).toEqual((await buildCurrentState(db, f.roomTypeId, 5))?.nights);
       await assertConsistent(db);
     } finally {
       await Promise.all(copies.map((c) => c.close()));

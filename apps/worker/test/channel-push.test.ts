@@ -32,7 +32,7 @@ describe('channel push', () => {
     const [w] = await startWorkers(env, now, 1);
     if (!w) throw new Error('no worker');
     try {
-      await db.$executeRaw`INSERT INTO channel_dirty (room_type_id, dirty_at) VALUES (${f.roomTypeId}::uuid, now())`;
+      await db.$executeRaw`INSERT INTO channel_dirty (room_type_id, dirty_at) VALUES (${f.roomTypeId}::uuid, now()) ON CONFLICT (room_type_id) DO UPDATE SET dirty_at = now()`;
       await w.deps.queues.channelPush.add('push', { roomTypeId: f.roomTypeId }, jobOptions(env, `push-${f.roomTypeId}`));
       await waitFor(async () => server.received.some((r) => r.status === 200), 'a delivered push');
       await waitFor(async () => (await num(db.$queryRaw`SELECT count(*) n FROM channel_dirty WHERE room_type_id = ${f.roomTypeId}::uuid`)) === 0, 'dirty cleared');

@@ -179,6 +179,7 @@ The real client IP comes from nginx only: it sets `X-Forwarded-For` and `X-Real-
 | Login (spraying) | IP | `LOGIN_MAX_FAILS_PER_IP=20` |
 | Login (distributed) | email | `LOGIN_MAX_FAILS_PER_EMAIL=50` |
 | Block length | — | `LOGIN_BLOCK_SEC=900` |
+| Live holds | IP | `HOLDS_PER_IP_MAX=10` (a hold blocks the room for everybody, so one address cannot keep a whole room type; confirming gives the slot back) |
 | Guest link, failed lookups | IP | `GUEST_LINK_LOOKUPS_PER_MIN=30` |
 | Channel endpoints | channel key | `CHANNEL_RATE_PER_MIN=6000` |
 
@@ -198,6 +199,12 @@ Staff passwords: argon2id. Staff get a JWT access token carrying their roles per
 - Channel changes skip min stay and stop-sell, like channel bookings: the channel already sold the stay. Dates without a rate are still refused (and the reason is kept on the inbox row).
 - A free upgrade moves the sale to the higher room type; the guest keeps the locked nightly prices.
 - Seed: 150 rooms per hotel cannot hold 250 in-house bookings, so "about 250 in-house" is read as guests: each hotel has 140 checked-in bookings with about 250 guests, about 60 arrivals and about 60 departures today, 3 overbooked channel bookings and 4 rooms out of order.
+- **When a room is freed on a night with accepted overbooking** (the web guest cancels, a hold expires, a no-show), the room goes to the oldest overbooked booking first, which then stops being overbooked (journal reason `overbooking_resolved`). The room is not sold again while an overbooked booking still waits for it.
+- **Every change of availability marks the room type stale for the channel in the same transaction** (`channel_dirty`), including expiry, no-show and repairs; the worker pushes it. Nothing can free a room without the channel hearing about it.
+- **The consistency check compares the counters with the bookings themselves**, not only with the journal: `sold`, `held` and `overbooked` per night must equal what the bookings hold.
+- **A room is free only if nobody is in it**: check-in is refused while another booking assigned to the same room is still checked in, even though the room's cleaning status says clean.
+- **Connecting room types to the channel is incremental** (`PATCH /api/admin/channel` with `add` / `remove`); `PUT` replaces the whole list and is for a one-off setup. The admin screen sends only what changed, so two administrators cannot erase each other's choices.
+- **The seed is one transaction.** If it stops half-way nothing is kept and the next start seeds again; two starts wait for each other on an advisory lock.
 - The JWT carries the roles, so a role change takes effect when the token expires (`JWT_TTL_SEC`, 8 h).
 
 ### Bugs found by the tests and the build (kept as tests)

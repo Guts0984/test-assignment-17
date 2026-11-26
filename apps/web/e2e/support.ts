@@ -65,8 +65,8 @@ export const createWorld = async (opts: { auditTime: string; standardRooms: numb
   for (const [t, price] of [[standard.id, 10_000], [upper.id, 15_000]] as const) {
     await api('PUT', `/api/hotels/${hotelId}/rates`, adminToken, { roomTypeId: t, from: today, to: addDays(today, 40), price });
   }
-  const current = await api<{ roomTypeIds: string[] }>('GET', '/api/admin/channel', adminToken);
-  await api('PUT', '/api/admin/channel', adminToken, { roomTypeIds: [...new Set([...current.body.roomTypeIds, standard.id])] });
+  // adds this one room type; never rewrites the list, so tests running side by side cannot erase each other's connection
+  await api('PATCH', '/api/admin/channel', adminToken, { add: [standard.id] });
   return { adminToken, hotelId, hotelName: hotel.body.name, today, standard, upper };
 };
 
@@ -108,5 +108,8 @@ export const mailTextFor = async (address: string): Promise<string | null> => {
 };
 
 /** HH:MM in the e2e hotels' time zone (Europe/Lisbon) about `minutes` from now, for a hotel whose audit should run soon. */
-export const auditSoon = (minutes: number): string =>
-  new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + minutes * 60_000));
+export const auditSoon = (): string => {
+  // the hotel is created a moment later: near the end of a minute, take one more minute so the audit time cannot pass first
+  const minutes = new Date().getSeconds() >= 50 ? 2 : 1;
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + minutes * 60_000));
+};

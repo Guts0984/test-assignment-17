@@ -87,6 +87,11 @@ export const checkIn = (deps: Deps, input: { bookingId: string; actor: string })
       SELECT r.status::text FROM room_assignment a JOIN room r ON r.id = a.room_id WHERE a.booking_id = ${b.id}::uuid`;
     if (!room) return err(domainError('ROOM_NOT_READY', 'Assign a room first'));
     if (!isRoomReady(room.status)) return err(domainError('ROOM_NOT_READY', `The room is ${room.status}, only clean or inspected rooms can be occupied`));
+    // a room stays "clean" while its guest lives in it: look at who is checked in there, not only at the cleaning status
+    const [inside] = await tx.$queryRaw<{ code: string }[]>`
+      SELECT b2.code FROM room_assignment a JOIN room_assignment a2 ON a2.room_id = a.room_id AND a2.booking_id <> a.booking_id
+      JOIN booking b2 ON b2.id = a2.booking_id WHERE a.booking_id = ${b.id}::uuid AND b2.status = 'checked_in' LIMIT 1`;
+    if (inside) return err(domainError('ROOM_NOT_READY', `The room is still occupied by booking ${inside.code}. Check that guest out first.`));
     await tx.$executeRaw`UPDATE booking SET status = 'checked_in', updated_at = ${deps.now()} WHERE id = ${b.id}::uuid AND status = 'confirmed'`;
     return ok(true);
   });

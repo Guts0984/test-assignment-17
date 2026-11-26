@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { hash } from 'argon2';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { addDays, hotelDateAt, nightsOf, weekday } from '@hotel/shared';
 import { env } from './env';
 import { createRng, planHotel } from './plan';
@@ -24,7 +24,9 @@ const ROOMS = 150;
 const RATE_DAYS = 730;
 const CHUNK = 4000;
 
-const db = new PrismaClient({ datasources: { db: { url: env.databaseUrl } } });
+const root = new PrismaClient({ datasources: { db: { url: env.databaseUrl } } });
+/** The client every helper uses: the connection itself, and inside `main` the one transaction the whole seed runs in. */
+let db: Prisma.TransactionClient = root;
 
 const bulk = async (sql: string, rows: readonly unknown[]): Promise<void> => {
   for (let i = 0; i < rows.length; i += CHUNK) await db.$executeRawUnsafe(sql, JSON.stringify(rows.slice(i, i + CHUNK)));
@@ -191,29 +193,37 @@ const seedOverbooking = async (hotelId: string, h: (typeof HOTELS)[number], type
   counts.bookings += made.length;
 };
 
+/**
+ * All or nothing: the whole seed is ONE transaction, so a crash or a restart in the middle leaves an empty database
+ * (the next start seeds again) instead of one hotel without the chain administrator. A lock makes two starts wait for each other.
+ */
 const main = async (): Promise<void> => {
-  const [{ n }] = await db.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM hotel`;
-  if (Number(n) > 0) {
-    console.error('seed: database already has data, skipping');
-    return;
-  }
-  const started = Date.now();
-  const passwordHash = await hash(env.SEED_PASSWORD);
-  const counts: Counts = { bookings: 0, folio: 0 };
-  await toggleNotify(false);
-  try {
-    for (const h of HOTELS) {
-      await seedHotel(h, passwordHash, counts);
-      console.error(`seed: ${h.code} done (${Math.round((Date.now() - started) / 1000)}s)`);
-    }
-  } finally {
-    await toggleNotify(true);
-  }
-  const adminId = randomUUID();
-  await db.$executeRaw`INSERT INTO staff (id, email, password_hash, name) VALUES (${adminId}::uuid, 'chain-admin@hotels.test', ${passwordHash}, 'Chain admin')`;
-  await db.$executeRaw`INSERT INTO staff_role (staff_id, hotel_id, role) VALUES (${adminId}::uuid, NULL, 'admin')`;
-  await db.$executeRawUnsafe('ANALYZE');
-  console.error(`seed: done, ${counts.bookings} bookings, ${counts.folio} folio lines in ${Math.round((Date.now() - started) / 1000)}s`);
+  await root.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(727001)`;
+      const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`SELECT count(*) n FROM hotel`;
+      if (Number(n) > 0) {
+        console.error('seed: database already has data, skipping');
+        return;
+      }
+      db = tx;
+      const started = Date.now();
+      const passwordHash = await hash(env.SEED_PASSWORD);
+      const counts: Counts = { bookings: 0, folio: 0 };
+      await toggleNotify(false);
+      for (const h of HOTELS) {
+        await seedHotel(h, passwordHash, counts);
+        console.error(`seed: ${h.code} done (${Math.round((Date.now() - started) / 1000)}s)`);
+      }
+      await toggleNotify(true);
+      const adminId = randomUUID();
+      await db.$executeRaw`INSERT INTO staff (id, email, password_hash, name) VALUES (${adminId}::uuid, 'chain-admin@hotels.test', ${passwordHash}, 'Chain admin')`;
+      await db.$executeRaw`INSERT INTO staff_role (staff_id, hotel_id, role) VALUES (${adminId}::uuid, NULL, 'admin')`;
+      await db.$executeRawUnsafe('ANALYZE');
+      console.error(`seed: done, ${counts.bookings} bookings, ${counts.folio} folio lines in ${Math.round((Date.now() - started) / 1000)}s`);
+    },
+    { timeout: 3_600_000, maxWait: 600_000 },
+  );
 };
 
 main()
@@ -221,4 +231,4 @@ main()
     console.error('seed failed', e);
     process.exitCode = 1;
   })
-  .finally(() => db.$disconnect());
+  .finally(() => root.$disconnect());

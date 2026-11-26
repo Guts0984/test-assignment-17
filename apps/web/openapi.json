@@ -2122,6 +2122,51 @@
           "admin"
         ]
       },
+      "patch": {
+        "operationId": "changeChannelRoomTypes",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeChannelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetChannelResultDto"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Connects and disconnects single room types (add / remove) without rewriting the list",
+        "tags": [
+          "admin"
+        ]
+      },
       "put": {
         "operationId": "setChannelRoomTypes",
         "parameters": [],
@@ -4482,6 +4527,29 @@
         "required": [
           "roomTypeIds"
         ]
+      },
+      "ChangeChannelDto": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": []
+          },
+          "remove": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": []
+          }
+        }
       },
       "SetChannelDto": {
         "type": "object",

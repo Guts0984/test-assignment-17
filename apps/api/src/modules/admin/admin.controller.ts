@@ -1,11 +1,11 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { StaffIdentity } from '../../common/auth/access';
 import { Roles } from '../../common/auth/auth.guard';
 import { CurrentStaff } from '../../common/auth/current-staff';
 import { AdminService } from './admin.service';
 import {
-  CreateHotelDto, CreateRoomDto, CreateRoomTypeDto, CreateStaffDto, HotelDto, RoomDto, RoomTypeDto, SetChannelDto, SetChannelResultDto, StaffDto, StaffListDto, UpdateHotelDto, UpdateStaffDto,
+  ChangeChannelDto, CreateHotelDto, CreateRoomDto, CreateRoomTypeDto, CreateStaffDto, HotelDto, RoomDto, RoomTypeDto, SetChannelDto, SetChannelResultDto, StaffDto, StaffListDto, UpdateHotelDto, UpdateStaffDto,
 } from './dto/admin.dto';
 
 @ApiTags('admin')
@@ -73,6 +73,13 @@ export class AdminController {
   @ApiOkResponse({ type: SetChannelResultDto })
   getChannel(@CurrentStaff() staff: StaffIdentity) {
     return this.admin.getChannel(staff);
+  }
+
+  @Patch('channel')
+  @ApiOperation({ operationId: 'changeChannelRoomTypes', summary: 'Connects and disconnects single room types (add / remove) without rewriting the list' })
+  @ApiOkResponse({ type: SetChannelResultDto })
+  changeChannel(@Body() b: ChangeChannelDto, @CurrentStaff() staff: StaffIdentity) {
+    return this.admin.changeChannel(staff, b.add, b.remove);
   }
 
   @Put('channel')

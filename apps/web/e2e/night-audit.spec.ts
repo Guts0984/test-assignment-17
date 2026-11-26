@@ -10,7 +10,7 @@ const openBooking = async (page: Page, w: World, code: string): Promise<void> =>
 };
 
 test('front desk: assign, check in, night audit charges the night, pay, check out; room goes to housekeeping and back to sale; a no-show is penalised', async ({ page, browser }) => {
-  const w = await createWorld({ auditTime: auditSoon(1), standardRooms: 2, label: 'audit' });
+  const w = await createWorld({ auditTime: auditSoon(), standardRooms: 2, label: 'audit' });
   const stay = await bookViaApi(w, w.standard.id, w.today, addDays(w.today, 2));
   const noShow = await bookViaApi(w, w.standard.id, w.today, addDays(w.today, 1));
   const maid = `maid-${w.hotelId.slice(0, 6)}@e2e.test`;

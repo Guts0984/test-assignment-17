@@ -98,8 +98,9 @@ export const roomOptions = async (db: Db, bookingId: string): Promise<RoomOption
   const [b] = await db.$queryRaw<{ hotel_id: string; room_type_id: string; check_in: string; check_out: string; rank: number }[]>`
     SELECT b.hotel_id::text, b.room_type_id::text, b.check_in::text, b.check_out::text, t.rank FROM booking b JOIN room_type t ON t.id = b.room_type_id WHERE b.id = ${bookingId}::uuid`;
   if (!b) return null;
-  const rows = await db.$queryRaw<{ id: string; number: string; room_type_id: string; name: string; status: RoomStatus }[]>`
-    SELECT r.id::text, r.number, r.room_type_id::text, t.name, r.status::text
+  const rows = await db.$queryRaw<{ id: string; number: string; room_type_id: string; name: string; status: RoomStatus; occupied: boolean }[]>`
+    SELECT r.id::text, r.number, r.room_type_id::text, t.name, r.status::text,
+           EXISTS (SELECT 1 FROM room_assignment a JOIN booking o ON o.id = a.booking_id WHERE a.room_id = r.id AND o.status = 'checked_in' AND a.booking_id <> ${bookingId}::uuid) AS occupied
     FROM room r JOIN room_type t ON t.id = r.room_type_id
     WHERE r.hotel_id = ${b.hotel_id}::uuid AND t.rank >= ${b.rank} AND r.status <> 'out_of_order'
       AND NOT EXISTS (SELECT 1 FROM room_assignment a WHERE a.room_id = r.id AND a.booking_id <> ${bookingId}::uuid AND a.nights && daterange(${b.check_in}::date, ${b.check_out}::date))
@@ -107,7 +108,7 @@ export const roomOptions = async (db: Db, bookingId: string): Promise<RoomOption
     ORDER BY t.rank, r.number`;
   return rows.map((r) => ({
     roomId: r.id, number: r.number, roomTypeId: r.room_type_id, roomTypeName: r.name, status: r.status,
-    ready: r.status === 'clean' || r.status === 'inspected', upgrade: r.room_type_id !== b.room_type_id,
+    ready: (r.status === 'clean' || r.status === 'inspected') && !r.occupied, upgrade: r.room_type_id !== b.room_type_id,
   }));
 };
 

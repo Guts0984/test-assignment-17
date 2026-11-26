@@ -74,6 +74,13 @@ export class AdminService {
     return { roomTypeIds: rows.map((r) => r.roomTypeId) };
   }
 
+  async changeChannel(staff: StaffIdentity, add: readonly string[], remove: readonly string[]) {
+    requireChainAdmin(staff);
+    const touched = unwrap(await repo.changeChannelTypes(this.db, add, remove));
+    await dirtyRoomTypes({ db: this.db, env: this.env, clock: this.clock, queue: this.queue }, touched);
+    return this.getChannel(staff);
+  }
+
   async setChannel(staff: StaffIdentity, roomTypeIds: readonly string[]) {
     requireChainAdmin(staff);
     const ids = unwrap(await repo.replaceChannelTypes(this.db, roomTypeIds));

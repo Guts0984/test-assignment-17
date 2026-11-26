@@ -90,6 +90,10 @@ export const cancelBooking = async (
 ): Promise<Result<{ penalty: number }, DomainError>> =>
   inTxResult(deps.db, async (tx) => {
     const now = deps.now();
+    // Lock first, read after: a date change running at the same moment holds this row, and what cancel releases must
+    // be the nights the booking has AFTER that change, not the ones it had before it.
+    const [lock] = await tx.$queryRaw<{ id: string }[]>`SELECT id::text FROM booking WHERE id = ${input.bookingId}::uuid FOR UPDATE`;
+    if (!lock) return err(domainError('NOT_FOUND', 'Booking not found'));
     const b = await loadBookingById(tx, input.bookingId);
     if (!b) return err(domainError('NOT_FOUND', 'Booking not found'));
     const nights = await loadNights(tx, b.id);

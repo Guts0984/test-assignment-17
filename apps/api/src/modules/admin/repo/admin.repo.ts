@@ -99,6 +99,15 @@ export const updateStaff = async (db: Db, id: string, input: { name?: string; pa
     return staffView((await tx.staff.findUniqueOrThrow({ where: { id }, include: { roles: true } })));
   });
 
+/** Adds and removes room types in one statement each: it never reads the list first, so parallel changes cannot lose each other. */
+export const changeChannelTypes = async (db: Db, add: readonly string[], remove: readonly string[]): Promise<Result<string[], DomainError>> => {
+  const wanted = [...new Set(add)];
+  if ((await db.roomType.count({ where: { id: { in: wanted } } })) !== wanted.length) return err(domainError('VALIDATION_ERROR', 'Unknown room type in the list'));
+  await db.$executeRaw`INSERT INTO channel_room_type (room_type_id) SELECT unnest(${wanted}::uuid[]) ON CONFLICT DO NOTHING`;
+  await db.$executeRaw`DELETE FROM channel_room_type WHERE room_type_id = ANY(${[...new Set(remove)]}::uuid[])`;
+  return ok([...wanted, ...remove]);
+};
+
 export const replaceChannelTypes = async (db: Db, ids: readonly string[]): Promise<Result<string[], DomainError>> => {
   const unique = [...new Set(ids)];
   if ((await db.roomType.count({ where: { id: { in: unique } } })) !== unique.length) return err(domainError('VALIDATION_ERROR', 'Unknown room type in the list'));

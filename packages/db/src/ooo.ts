@@ -1,6 +1,6 @@
 import { diffDays, domainError, err, nightsOf, ok, type DomainError, type Result } from '@hotel/shared';
 import { inTxResult, pgCode, type Db, type Tx } from './client';
-import { lockNights } from './inventory';
+import { lockNights, markChannelStale, handOverFreedRooms } from './inventory';
 
 interface Deps {
   readonly db: Db;
@@ -8,6 +8,7 @@ interface Deps {
 }
 
 const shiftOoo = async (tx: Tx, roomTypeId: string, nights: readonly string[], delta: 1 | -1, docId: string, actor: string): Promise<void> => {
+  await markChannelStale(tx, roomTypeId);
   for (const night of nights) {
     await tx.$executeRaw`UPDATE inventory SET ooo = ooo + ${delta} WHERE room_type_id = ${roomTypeId}::uuid AND night = ${night}::date`;
     await tx.$executeRaw`
@@ -65,6 +66,8 @@ export const removeOutOfOrder = (
     await lockNights(tx, room.room_type_id, nights);
     await tx.$executeRaw`DELETE FROM room_out_of_order WHERE id = ${input.oooId}::uuid`;
     await shiftOoo(tx, room.room_type_id, nights, -1, input.oooId, input.actor);
+    // the room is back: an overbooked booking on these nights gets it before the site or the channel can sell it again
+    await handOverFreedRooms(tx, room.room_type_id, nights, { reason: 'out_of_order_end', docId: input.oooId, actor: input.actor });
     await tx.$executeRaw`
       UPDATE room SET status = 'dirty' WHERE id = ${input.roomId}::uuid AND status = 'out_of_order'
         AND NOT EXISTS (SELECT 1 FROM room_out_of_order WHERE room_id = ${input.roomId}::uuid AND from_date <= ${input.hotelDate}::date AND ${input.hotelDate}::date < to_date)`;

@@ -13,6 +13,7 @@ import {
 } from '@hotel/db';
 import { addDays, domainError, err, nightsOf, ok, ERROR_STATUS, type DomainError, type Result } from '@hotel/shared';
 import { toHttp } from '../../common/http-error';
+import { clientIp } from '../../common/rate-limit/client-ip';
 import { guestLinkLimiter } from '../../common/rate-limit/middlewares';
 import type { CounterStore } from '../../common/rate-limit/store';
 import { CLOCK, DB, ENV, HOLD_QUEUE, LIMITER_STORE, QUEUE, type Clock, type EnvValue } from '../../infra/tokens';
@@ -116,6 +117,8 @@ export class GuestService {
     const found = await this.lookup(req, token);
     const r = await confirmHold({ db: this.db, now: this.clock.now, holdMinutes: this.env.HOLD_MINUTES, manageUrl: (t) => `${this.env.PUBLIC_WEB_URL}/manage/${t}` }, token, guest);
     if (!r.ok) return r;
+    // a confirmed booking is a booking now, not a hold: its slot in the per-address hold limit is given back
+    await this.holdStore.decr(`holds:${clientIp(req)}`).catch(() => undefined);
     await this.dirty(found.booking.room_type_id);
     const view = await this.view(token);
     return ok({ code: found.booking.code, manageUrl: `${this.env.PUBLIC_WEB_URL}/manage/${token}`, booking: view });

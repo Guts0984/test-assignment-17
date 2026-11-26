@@ -135,6 +135,8 @@ export const updateStaffSchema = z.object({ name: z.string().trim().min(2).max(1
 export const staffSchema = z.object({ id: z.string(), email: z.string(), name: z.string(), roles: grants });
 export const staffListSchema = z.object({ staff: z.array(staffSchema) });
 export const setChannelSchema = z.object({ roomTypeIds: z.array(uuid).max(500) });
+/** Connect and disconnect single room types without rewriting the whole list (two admins, or two tests, cannot overwrite each other). */
+export const changeChannelSchema = z.object({ add: z.array(uuid).max(500).default([]), remove: z.array(uuid).max(500).default([]) });
 export const setChannelResultSchema = z.object({ roomTypeIds: z.array(z.string()) });
 export const failedJobSchema = z.object({ queue: z.string(), id: z.string(), name: z.string(), failedReason: z.string(), attemptsMade: z.number(), data: z.unknown(), failedAt: z.string().nullable() });
 export const failedJobsSchema = z.object({ jobs: z.array(failedJobSchema) });

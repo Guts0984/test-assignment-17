@@ -669,7 +669,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Connects and disconnects single room types (add / remove) without rewriting the list */
+        patch: operations["changeChannelRoomTypes"];
         trace?: never;
     };
     "/api/admin/jobs/failed": {
@@ -1229,6 +1230,12 @@ export interface components {
         };
         SetChannelResultDto: {
             roomTypeIds: string[];
+        };
+        ChangeChannelDto: {
+            /** @default [] */
+            add: string[];
+            /** @default [] */
+            remove: string[];
         };
         SetChannelDto: {
             roomTypeIds: string[];
@@ -2696,6 +2703,38 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SetChannelDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetChannelResultDto"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    changeChannelRoomTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeChannelDto"];
             };
         };
         responses: {

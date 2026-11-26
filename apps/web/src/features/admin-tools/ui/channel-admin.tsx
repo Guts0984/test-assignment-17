@@ -46,15 +46,18 @@ export const ChannelAdmin = (): ReactNode => {
       <Button
         className="mt-3"
         disabled={action.busy || picked === null}
-        onClick={() =>
+        onClick={() => {
+          // only what changed is sent, so two administrators cannot overwrite each other's connections
+          const before = current.data?.roomTypeIds ?? [];
+          const now = picked ?? [];
           void action.run(
-            () => api.PUT('/api/admin/channel', { body: { roomTypeIds: [...(picked ?? [])] } }),
+            () => api.PATCH('/api/admin/channel', { body: { add: now.filter((id) => !before.includes(id)), remove: before.filter((id) => !now.includes(id)) } }),
             async () => {
               setSaved(true);
               await queryClient.invalidateQueries({ queryKey: ['channel-types'] });
             },
-          )
-        }
+          );
+        }}
       >
         Save
       </Button>

@@ -1,6 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import type { Db } from '@hotel/db';
-import { inTx, pgCode } from '@hotel/db';
+import { inTx, pgCode, handOverFreedRooms } from '@hotel/db';
 import { addDays, applyRateChange, diffDays, domainError, ERROR_STATUS, err, MAX_PRICE, nightsOf, ok, type DomainError, type RateChange, type Result } from '@hotel/shared';
 
 export const roomTypeInHotel = async (db: Db, hotelId: string, roomTypeId: string): Promise<boolean> =>
@@ -65,6 +65,10 @@ export const applyOverbookingAllowance = async (db: Db, hotelId: string, roomTyp
       await tx.$executeRaw`
         UPDATE inventory SET total = (SELECT count(*) FROM room WHERE room_type_id = ${roomTypeId}::uuid)::int + ${allowance}
         WHERE room_type_id = ${roomTypeId}::uuid AND night >= ${today}::date`;
+      // more capacity goes to the overbooked bookings waiting for it first
+      const waiting = await tx.$queryRaw<{ night: string }[]>`
+        SELECT night::text FROM inventory WHERE room_type_id = ${roomTypeId}::uuid AND night >= ${today}::date AND overbooked > 0 ORDER BY night`;
+      await handOverFreedRooms(tx, roomTypeId, waiting.map((w) => w.night), { reason: 'allowance_change', docId: null, actor: 'revenue' });
     });
     return ok(true);
   } catch (e) {
@@ -94,7 +98,7 @@ export const loadGrid = async (db: Db, hotelId: string, from: string, days: numb
     SELECT rt.id::text, rt.name, rt.overbooking_allowance AS allowance, (SELECT count(*) FROM room r WHERE r.room_type_id = rt.id)::int AS rooms
     FROM room_type rt WHERE rt.hotel_id = ${hotelId}::uuid ORDER BY rt.rank`;
   const rows = await db.$queryRaw<GridRow[]>`
-    SELECT rt.id::text AS "roomTypeId", d::text AS night, COALESCE(i.total, 0)::int AS total, COALESCE(i.ooo, 0)::int AS ooo, COALESCE(i.sold, 0)::int AS sold,
+    SELECT rt.id::text AS "roomTypeId", d::date::text AS night, COALESCE(i.total, 0)::int AS total, COALESCE(i.ooo, 0)::int AS ooo, COALESCE(i.sold, 0)::int AS sold,
            COALESCE(i.held, 0)::int AS held, COALESCE(i.overbooked, 0)::int AS overbooked, r.price,
            x.min_stay AS "minStay", x.closed_to_arrival AS cta, x.closed_to_departure AS ctd, x.stop_sell AS stop
     FROM room_type rt

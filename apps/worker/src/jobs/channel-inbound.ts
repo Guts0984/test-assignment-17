@@ -15,6 +15,6 @@ export const runInbound = async (deps: WorkerDeps, data: InboundData): Promise<v
   await deps.db.$executeRaw`
     INSERT INTO channel_dirty (room_type_id, dirty_at)
     SELECT ${out.roomTypeId}::uuid, ${deps.now()} WHERE ${out.roomTypeId}::uuid IN (SELECT room_type_id FROM channel_room_type)
-    ON CONFLICT (room_type_id) DO UPDATE SET dirty_at = EXCLUDED.dirty_at`;
+    ON CONFLICT (room_type_id) DO UPDATE SET dirty_at = GREATEST(channel_dirty.dirty_at + interval '1 millisecond', EXCLUDED.dirty_at)`;
   await deps.queues.channelPush.add('push', { roomTypeId: out.roomTypeId }, jobOptions(deps.env, `push-${out.roomTypeId}`, deps.env.CHANNEL_DEBOUNCE_MS)).catch(() => undefined);
 };

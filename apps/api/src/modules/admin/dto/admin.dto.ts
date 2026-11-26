@@ -1,6 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import {
-  createHotelSchema, createRoomSchema, createRoomTypeSchema, createStaffSchema, hotelSchema, roomSchema, roomTypeSchema, setChannelResultSchema, setChannelSchema,
+  createHotelSchema, createRoomSchema, createRoomTypeSchema, createStaffSchema, hotelSchema, roomSchema, roomTypeSchema, setChannelResultSchema, setChannelSchema, changeChannelSchema,
   staffListSchema, staffSchema, updateHotelSchema, updateStaffSchema,
 } from '@hotel/shared';
 
@@ -17,3 +17,4 @@ export class StaffDto extends createZodDto(staffSchema) {}
 export class StaffListDto extends createZodDto(staffListSchema) {}
 export class SetChannelDto extends createZodDto(setChannelSchema) {}
 export class SetChannelResultDto extends createZodDto(setChannelResultSchema) {}
+export class ChangeChannelDto extends createZodDto(changeChannelSchema) {}
